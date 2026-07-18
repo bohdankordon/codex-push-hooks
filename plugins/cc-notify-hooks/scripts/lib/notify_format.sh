@@ -19,6 +19,11 @@ notify_long_markdown() {
     printf '%s' "$event_json" | jq -r '
         def present: . != null and . != "";
         def note: [.model, .cwd, .hostname] | map(select(. != null and . != "")) | join(" · ");
+        def session_value:
+            if .event_kind == "user_input" and (.session_id | present)
+            then .session_id
+            else .session_short
+            end;
         (
             [
                 (.summary_short // ""),
@@ -27,7 +32,13 @@ notify_long_markdown() {
                 "**事件**: " + (.event_name // "unknown")
             ]
             + (if (.tool_name | present) then ["**工具**: " + .tool_name] else [] end)
-            + (if (.session_short | present) then ["**Session**: " + .session_short] else [] end)
+            + (if (.event_kind == "user_input" and (.question_count // 0) > 0)
+               then ["**问题数**: " + ((.question_count // 0) | tostring)]
+               else [] end)
+            + (if (.event_kind == "user_input" and ((.option_labels // []) | length) > 0)
+               then ["**选项**: " + ((.option_labels // []) | join(" / "))]
+               else [] end)
+            + (if (session_value | present) then ["**Session**: " + session_value] else [] end)
             + (if (note != "") then ["", note] else [] end)
         )
         | join("\n")

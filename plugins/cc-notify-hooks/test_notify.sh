@@ -9,6 +9,8 @@
 #   bash test_notify.sh codex        # 模拟 Codex CLI 的 PermissionRequest 事件（prompt 字段）
 #   bash test_notify.sh list         # 列出已启用 channel
 #   bash test_notify.sh codex-plugin-hooks  # 验证 Codex 插件 hook 不依赖会话 cwd
+#   bash test_notify.sh user-input    # 验证 request_user_input dispatcher 与模板
+#   bash test_notify.sh state         # 验证 session scoped 状态、去重与清理
 #   bash test_notify.sh render        # 验证通知标题和正文模板
 
 set -euo pipefail
@@ -24,12 +26,15 @@ NC='\033[0m'
 
 # 查找配置文件（顺序与 scripts/notify.sh 保持一致）
 CONFIG_FILE=""
+CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
 if [ -n "${CC_NOTIFY_CONFIG:-}" ] && [ -f "${CC_NOTIFY_CONFIG}" ]; then
     CONFIG_FILE="${CC_NOTIFY_CONFIG}"
+elif [ -n "${PLUGIN_DATA:-}" ] && [ -f "${PLUGIN_DATA}/notify.json" ]; then
+    CONFIG_FILE="${PLUGIN_DATA}/notify.json"
 elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json" ]; then
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
-elif [ -f "${HOME}/.codex/cc-notify-hooks/notify.json" ]; then
-    CONFIG_FILE="${HOME}/.codex/cc-notify-hooks/notify.json"
+elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
 fi
@@ -41,7 +46,11 @@ echo ""
 
 COMMAND="${1:-all}"
 
-if [ -z "$CONFIG_FILE" ] && [ "$COMMAND" != "codex-plugin-hooks" ] && [ "$COMMAND" != "render" ]; then
+if [ -z "$CONFIG_FILE" ] &&
+   [ "$COMMAND" != "codex-plugin-hooks" ] &&
+   [ "$COMMAND" != "user-input" ] &&
+   [ "$COMMAND" != "state" ] &&
+   [ "$COMMAND" != "render" ]; then
     echo -e "${RED}未找到配置文件${NC}"
     echo "  请先运行 bash install.sh 或复制 config/notify.example.json 到"
     echo "  ~/.claude/hooks/notify.json"
@@ -201,37 +210,272 @@ test_codex_flow() {
     echo "    echo '{\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"hello\"}' | bash ${SCRIPT_DIR}/scripts/clear_pending.sh"
 }
 
-# 验证 Codex 插件打包 hook 能从任意会话 cwd 找到插件缓存里的脚本
+# 验证 Codex 插件打包 hook 能从任意会话 cwd 使用 runtime 路径变量
 test_codex_plugin_hooks() {
-    echo -e "${YELLOW}[Codex Plugin Hooks]${NC} 验证插件 hook 命令不依赖当前目录..."
-
-    local tmp_base tmp_home plugin_parent plugin_root stop_cmd clear_cmd
-    tmp_base="${TMPDIR:-/tmp}"
-    tmp_home=$(mktemp -d "${tmp_base%/}/cc-notify-hooks.XXXXXX")
-    plugin_parent="${tmp_home}/.codex/plugins/cache/local/cc-notify-hooks"
-    plugin_root="${plugin_parent}/local"
-    mkdir -p "$plugin_parent"
-    ln -s "$SCRIPT_DIR" "$plugin_root"
-
-    stop_cmd=$(jq -r '.hooks.Stop[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
-    clear_cmd=$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
-
     (
+        set -euo pipefail
+        echo -e "${YELLOW}[Codex Plugin Hooks]${NC} 验证 PLUGIN_ROOT、PLUGIN_DATA 与自定义 CODEX_HOME..."
+
+        local tmp_base tmp_root tmp_home plugin_data custom_codex_home
+        local stop_cmd clear_cmd pre_cmd post_cmd out
+        tmp_base="${TMPDIR:-/tmp}"
+        tmp_root=$(mktemp -d "${tmp_base%/}/cc-notify-hooks.XXXXXX")
+        trap 'rm -rf "$tmp_root"' EXIT
+        tmp_home="${tmp_root}/home"
+        plugin_data="${tmp_root}/plugin-data"
+        custom_codex_home="${tmp_root}/custom-codex"
+        mkdir -p "$tmp_home" "$plugin_data/state" "${custom_codex_home}/cc-notify-hooks"
+        printf '%s\n' '{"channels":{},"rate_limit":10}' > "${plugin_data}/notify.json"
+        printf '%s\n' '{"channels":{},"rate_limit":10}' > "${custom_codex_home}/cc-notify-hooks/notify.json"
+
+        stop_cmd=$(jq -r '.hooks.Stop[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        clear_cmd=$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        pre_cmd=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        post_cmd=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+
         cd "$tmp_base"
         printf '%s' '{"hook_event_name":"Stop","session_id":"codex-plugin-test","cwd":"'"$tmp_base"'"}' \
-            | HOME="$tmp_home" bash -lc "$stop_cmd"
-        printf '%s' '{"hook_event_name":"UserPromptSubmit","prompt":"hello","cwd":"'"$tmp_base"'"}' \
-            | HOME="$tmp_home" bash -lc "$clear_cmd"
+            | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
+                bash -c "$stop_cmd"
+
+        out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"codex-plugin-test","turn_id":"turn-plugin","tool_name":"request_user_input","tool_use_id":"call-plugin","tool_input":{"questions":[{"header":"确认","question":"是否继续？","options":[{"label":"继续"},{"label":"取消"}]}]},"cwd":"'"$tmp_base"'"}' \
+            | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
+                CC_NOTIFY_RENDER_ONLY=1 bash -c "$pre_cmd")
+
+        if [ "$(printf '%s' "$out" | jq -r '.event_kind')" != "user_input" ]; then
+            echo -e "${RED}[Codex Plugin Hooks]${NC} PreToolUse 没有通过 PLUGIN_ROOT 执行 dispatcher"
+            return 1
+        fi
+
+        touch "${plugin_data}/state/pending_codex-plugin-test_user_input_call-plugin_1_1"
+        printf '%s' '{"hook_event_name":"PostToolUse","session_id":"codex-plugin-test","tool_name":"request_user_input","tool_use_id":"call-plugin"}' \
+            | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
+                bash -c "$post_cmd"
+        if compgen -G "${plugin_data}/state/pending_codex-plugin-test_user_input_*" >/dev/null; then
+            echo -e "${RED}[Codex Plugin Hooks]${NC} PostToolUse 没有清理 user_input pending"
+            return 1
+        fi
+
+        printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"codex-plugin-test","prompt":"hello"}' \
+            | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
+                bash -c "$clear_cmd"
+
+        if [ ! -f "${plugin_data}/state/last_codex-plugin-test_stop" ]; then
+            echo -e "${RED}[Codex Plugin Hooks]${NC} Stop hook 没有写入 PLUGIN_DATA state"
+            return 1
+        fi
+
+        printf '%s' '{"hook_event_name":"Stop","session_id":"standalone-test","cwd":"'"$tmp_base"'"}' \
+            | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" CC_NOTIFY_STATE_DIR="${tmp_root}/standalone-state" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" stop
+        if [ ! -f "${tmp_root}/standalone-state/last_standalone-test_stop" ]; then
+            echo -e "${RED}[Codex Plugin Hooks]${NC} notify.sh 没有读取自定义 CODEX_HOME 配置"
+            return 1
+        fi
+
+        echo -e "${GREEN}[Codex Plugin Hooks]${NC} ✅ runtime 路径与自定义 CODEX_HOME 符合预期"
     )
+}
 
-    if [ ! -f "${tmp_home}/.claude/hooks/state/last_stop" ]; then
-        echo -e "${RED}[Codex Plugin Hooks]${NC} stop hook 没有执行到 notify.sh"
-        rm -rf "$tmp_home"
-        return 1
-    fi
+test_user_input_flow() {
+    (
+        set -euo pipefail
+        echo -e "${YELLOW}[request_user_input]${NC} 验证 dispatcher、模板与安静降级..."
 
-    rm -rf "$tmp_home"
-    echo -e "${GREEN}[Codex Plugin Hooks]${NC} ✅ 插件 hook 可从任意 cwd 执行"
+        local tmp_base tmp_root state_dir out markdown fallback_out empty_out invalid_out no_jq_out
+        local capture_file feishu_payload discord_payload
+        local bash_bin minimal_bin
+        tmp_base="${TMPDIR:-/tmp}"
+        tmp_root=$(mktemp -d "${tmp_base%/}/cc-notify-hooks-user-input.XXXXXX")
+        trap 'rm -rf "$tmp_root"' EXIT
+        state_dir="${tmp_root}/state"
+        mkdir -p "$state_dir"
+
+        out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-user-input","turn_id":"turn-user-input","tool_name":"request_user_input","tool_use_id":"call-user-input","tool_input":{"questions":[{"header":"范围","question":"这次修复覆盖什么？","options":[{"label":"完整修复"},{"label":"最小补丁"}]},{"header":"通知","question":"使用哪个渠道？","options":[{"label":"macOS"},{"label":"Bark"}]}]},"cwd":"/tmp/demo-project","model":"gpt-5.5"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+
+        if [ "$(printf '%s' "$out" | jq -r '.title')" != "Codex · 需要回复 🔔" ] ||
+           [ "$(printf '%s' "$out" | jq -r '.summary_short')" != "范围" ] ||
+           [ "$(printf '%s' "$out" | jq -r '.event_kind')" != "user_input" ] ||
+           [ "$(printf '%s' "$out" | jq -r '.question_count')" != "2" ] ||
+           [ "$(printf '%s' "$out" | jq -r '.option_labels | join(",")')" != "完整修复,最小补丁" ] ||
+           [[ "$(printf '%s' "$out" | jq -r '.body')" != *"2 个问题 · Session session-"* ]]; then
+            echo -e "${RED}[request_user_input]${NC} 结构化通知字段错误: $out"
+            return 1
+        fi
+
+        source "${SCRIPT_DIR}/scripts/lib/notify_format.sh"
+        markdown=$(notify_long_markdown "$out")
+        if [[ "$markdown" != *"**问题数**: 2"* ]] ||
+           [[ "$markdown" != *"**选项**: 完整修复 / 最小补丁"* ]] ||
+           [[ "$markdown" != *"**Session**: session-user-input"* ]] ||
+           [[ "$markdown" != *"/tmp/demo-project"* ]]; then
+            echo -e "${RED}[request_user_input]${NC} 长通知字段错误: $markdown"
+            return 1
+        fi
+
+        capture_file="${tmp_root}/channel-payload.json"
+        curl() {
+            local previous="" argument
+            for argument in "$@"; do
+                if [ "$previous" = "-d" ]; then
+                    printf '%s' "$argument" > "$capture_file"
+                    return 0
+                fi
+                previous="$argument"
+            done
+            return 0
+        }
+
+        source "${SCRIPT_DIR}/scripts/channels/feishu.sh"
+        send_feishu "$(printf '%s' "$out" | jq -r '.title')" "$(printf '%s' "$out" | jq -r '.body')" '{"webhook":"https://example.invalid","format":"card"}' "$out"
+        feishu_payload=$(cat "$capture_file")
+        if ! printf '%s' "$feishu_payload" | jq -e '
+            .card.elements[1].fields as $fields
+            | any($fields[]; .text.content == "**问题数**\n2")
+              and any($fields[]; .text.content == "**选项**\n完整修复 / 最小补丁")
+              and any($fields[]; .text.content == "**Session**\nsession-user-input")
+        ' >/dev/null; then
+            echo -e "${RED}[request_user_input]${NC} 飞书卡片缺少结构化问题字段: $feishu_payload"
+            return 1
+        fi
+
+        source "${SCRIPT_DIR}/scripts/channels/discord.sh"
+        send_discord "$(printf '%s' "$out" | jq -r '.title')" "$(printf '%s' "$out" | jq -r '.body')" '{"webhook":"https://example.invalid","format":"embed"}' "$out"
+        discord_payload=$(cat "$capture_file")
+        if ! printf '%s' "$discord_payload" | jq -e '
+            .embeds[0].fields as $fields
+            | any($fields[]; .name == "问题数" and .value == "2")
+              and any($fields[]; .name == "选项" and .value == "完整修复 / 最小补丁")
+              and any($fields[]; .name == "Session" and .value == "session-user-input")
+        ' >/dev/null; then
+            echo -e "${RED}[request_user_input]${NC} Discord embed 缺少结构化问题字段: $discord_payload"
+            return 1
+        fi
+
+        fallback_out=$(printf '%s' '{"hook_event_name":"PreToolUse","turn_id":"turn-only-123","tool_name":"request_user_input","tool_use_id":"call-fallback","tool_input":{"questions":[{"header":"","question":"请选择修复范围","options":[{"label":"完整"},{"label":"最小"}]}]},"cwd":"/tmp/demo-project"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ "$(printf '%s' "$fallback_out" | jq -r '.summary_short')" != "请选择修复范围" ] ||
+           [ "$(printf '%s' "$fallback_out" | jq -r '.session_short')" != "turn-onl" ]; then
+            echo -e "${RED}[request_user_input]${NC} question/turn_id fallback 错误: $fallback_out"
+            return 1
+        fi
+
+        touch \
+            "${state_dir}/pending_session-a_notification_call-a_1_1" \
+            "${state_dir}/pending_session-b_notification_call-b_1_1"
+        printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-a","tool_name":"Bash","tool_input":{"command":"true"}}' \
+            | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh"
+        if compgen -G "${state_dir}/pending_session-a_*" >/dev/null ||
+           ! compgen -G "${state_dir}/pending_session-b_*" >/dev/null; then
+            echo -e "${RED}[request_user_input]${NC} 普通 PreToolUse 没有按 session 清理"
+            return 1
+        fi
+
+        empty_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"empty","tool_name":"request_user_input","tool_input":{"questions":[]}}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        invalid_out=$(printf '%s' '{invalid json' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+
+        bash_bin=$(command -v bash)
+        minimal_bin="${tmp_root}/minimal-bin"
+        mkdir -p "$minimal_bin"
+        ln -s "$(command -v cat)" "${minimal_bin}/cat"
+        ln -s "$(command -v dirname)" "${minimal_bin}/dirname"
+        no_jq_out=$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_input":{"questions":[{"question":"test"}]}}' \
+            | PATH="$minimal_bin" "$bash_bin" "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+
+        if [ -n "$empty_out" ] || [ -n "$invalid_out" ] || [ -n "$no_jq_out" ]; then
+            echo -e "${RED}[request_user_input]${NC} 空问题、非法 JSON 或缺少 jq 时不应输出"
+            return 1
+        fi
+
+        echo -e "${GREEN}[request_user_input]${NC} ✅ dispatcher 与通知模板符合预期"
+    )
+}
+
+test_session_state() {
+    (
+        set -euo pipefail
+        shopt -s nullglob
+        echo -e "${YELLOW}[Session State]${NC} 验证 pending、rate-limit、去重与 /exit 隔离..."
+
+        local tmp_base tmp_root state_dir config_file event_a event_a_new event_b
+        local first_pending repeated_pending new_pending
+        tmp_base="${TMPDIR:-/tmp}"
+        tmp_root=$(mktemp -d "${tmp_base%/}/cc-notify-hooks-state.XXXXXX")
+        trap 'rm -rf "$tmp_root"' EXIT
+        state_dir="${tmp_root}/state"
+        config_file="${tmp_root}/notify.json"
+        mkdir -p "$state_dir"
+        printf '%s\n' '{"channels":{},"rate_limit":10}' > "$config_file"
+
+        event_a='{"hook_event_name":"PreToolUse","session_id":"session-a","turn_id":"turn-a","tool_name":"request_user_input","tool_use_id":"call-a","tool_input":{"questions":[{"header":"A","question":"Question A","options":[{"label":"Yes"},{"label":"No"}]}]},"cwd":"/tmp/project-a"}'
+        event_a_new=$(printf '%s' "$event_a" | jq -c '.tool_use_id = "call-a-new"')
+        event_b=$(printf '%s' "$event_a" | jq -c '.session_id = "session-b" | .turn_id = "turn-b" | .tool_use_id = "call-b" | .tool_input.questions[0].header = "B"')
+
+        printf '%s' "$event_a" \
+            | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
+        first_pending=$(compgen -G "${state_dir}/pending_session-a_user_input_*" | head -n 1)
+        [ -n "$first_pending" ] || { echo -e "${RED}[Session State]${NC} session A 未创建 pending"; return 1; }
+
+        printf '%s' "$event_a" \
+            | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
+        repeated_pending=$(compgen -G "${state_dir}/pending_session-a_user_input_*" | head -n 1)
+        if [ "$repeated_pending" != "$first_pending" ]; then
+            echo -e "${RED}[Session State]${NC} 相同 tool_use_id 没有去重"
+            return 1
+        fi
+
+        printf '%s' "$event_a_new" \
+            | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
+        new_pending=$(compgen -G "${state_dir}/pending_session-a_user_input_*" | head -n 1)
+        if [ "$new_pending" = "$first_pending" ]; then
+            echo -e "${RED}[Session State]${NC} 不同 tool_use_id 被十秒限流吞掉"
+            return 1
+        fi
+
+        printf '%s' "$event_b" \
+            | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
+        if ! compgen -G "${state_dir}/pending_session-a_user_input_*" >/dev/null ||
+           ! compgen -G "${state_dir}/pending_session-b_user_input_*" >/dev/null ||
+           [ ! -f "${state_dir}/last_session-a_user_input" ] ||
+           [ ! -f "${state_dir}/last_session-b_user_input" ]; then
+            echo -e "${RED}[Session State]${NC} 两个 session 的 pending/rate 状态没有隔离"
+            return 1
+        fi
+
+        printf '%s' '{"hook_event_name":"PostToolUse","session_id":"session-a","tool_name":"request_user_input","tool_use_id":"call-a-new"}' \
+            | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/clear_pending.sh" user_input
+        if compgen -G "${state_dir}/pending_session-a_user_input_*" >/dev/null ||
+           ! compgen -G "${state_dir}/pending_session-b_user_input_*" >/dev/null; then
+            echo -e "${RED}[Session State]${NC} PostToolUse 清理影响了其他 session"
+            return 1
+        fi
+
+        printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"session-a","prompt":"/exit"}' \
+            | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/clear_pending.sh"
+        [ -f "${state_dir}/exiting_session-a" ] || { echo -e "${RED}[Session State]${NC} /exit 未按 session 记录"; return 1; }
+
+        printf '%s' '{"hook_event_name":"Stop","session_id":"session-b","cwd":"/tmp/project-b"}' \
+            | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" stop
+        [ -f "${state_dir}/last_session-b_stop" ] || { echo -e "${RED}[Session State]${NC} session A 的 /exit 错误抑制了 session B"; return 1; }
+
+        printf '%s' '{"hook_event_name":"Stop","session_id":"session-a","cwd":"/tmp/project-a"}' \
+            | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
+                bash "${SCRIPT_DIR}/scripts/notify.sh" stop
+        if [ -f "${state_dir}/exiting_session-a" ] || [ -f "${state_dir}/last_session-a_stop" ]; then
+            echo -e "${RED}[Session State]${NC} /exit Stop 抑制行为错误"
+            return 1
+        fi
+
+        echo -e "${GREEN}[Session State]${NC} ✅ session 状态、精确去重与清理符合预期"
+    )
 }
 
 test_render_templates() {
@@ -365,6 +609,12 @@ case "$COMMAND" in
         ;;
     codex-plugin-hooks)
         test_codex_plugin_hooks
+        ;;
+    user-input)
+        test_user_input_flow
+        ;;
+    state)
+        test_session_state
         ;;
     render)
         test_render_templates

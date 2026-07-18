@@ -1,33 +1,43 @@
 #!/usr/bin/env bash
 #
-# 用户交互时清除所有待推送的通知
-# 由 UserPromptSubmit / PreToolUse hook 调用
-#
-# 原理：
-#   UserPromptSubmit → 用户发了消息 → 取消推送
-#   PreToolUse → 用户点了权限按钮 → 取消推送
-#   /exit → 设置退出标记，后续 Stop 事件跳过
+# 清除当前 session 排队中的通知。
+# 无参数清除当前 session 全部 pending；传入 event kind 时只清理该类别。
 
-STATE_DIR="${HOME}/.claude/hooks/state"
-[ -d "$STATE_DIR" ] || exit 0
+STATE_BASE="${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/hooks}}"
+STATE_DIR="${CC_NOTIFY_STATE_DIR:-${STATE_BASE}/state}"
+mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
-# 读取事件数据
-EVENT_DATA=$(cat 2>/dev/null || echo "")
+EVENT_DATA=$(cat 2>/dev/null || true)
+[ -n "$EVENT_DATA" ] || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+printf '%s' "$EVENT_DATA" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
-# 仅 UserPromptSubmit 事件检测 /exit
-if command -v jq &>/dev/null && [ -n "$EVENT_DATA" ]; then
-    HOOK_EVENT=$(echo "$EVENT_DATA" | jq -r '.hook_event_name // empty' 2>/dev/null || echo "")
-    if [ "$HOOK_EVENT" = "UserPromptSubmit" ]; then
-        MESSAGE=$(echo "$EVENT_DATA" | jq -r '.message // .prompt // empty' 2>/dev/null || echo "")
-        if [[ "$MESSAGE" =~ ^[[:space:]]*/exit[[:space:]]*$ ]]; then
-            touch "${STATE_DIR}/exiting"
-        else
-            rm -f "${STATE_DIR}/exiting" 2>/dev/null || true
-        fi
+safe_state_key() {
+    local value="${1:-unknown}"
+    value=$(printf '%s' "$value" | LC_ALL=C tr -c '[:alnum:]_.-' '_' | cut -c1-96)
+    printf '%s' "${value:-unknown}"
+}
+
+HOOK_EVENT=$(printf '%s' "$EVENT_DATA" | jq -r '.hook_event_name // empty' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.session_id // empty' 2>/dev/null || true)
+TURN_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.turn_id // empty' 2>/dev/null || true)
+SESSION_KEY=$(safe_state_key "${SESSION_ID:-${TURN_ID:-unknown}}")
+CLEAR_KIND="${1:-}"
+
+if [ "$HOOK_EVENT" = "UserPromptSubmit" ]; then
+    MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.message // .prompt // empty' 2>/dev/null || true)
+    if [[ "$MESSAGE" =~ ^[[:space:]]*/exit[[:space:]]*$ ]]; then
+        touch "${STATE_DIR}/exiting_${SESSION_KEY}"
+    else
+        rm -f "${STATE_DIR}/exiting_${SESSION_KEY}" 2>/dev/null || true
     fi
 fi
 
-# 清除所有 pending 通知
-rm -f "${STATE_DIR}"/pending_* 2>/dev/null || true
+if [ -n "$CLEAR_KIND" ]; then
+    KIND_KEY=$(safe_state_key "$CLEAR_KIND")
+    rm -f "${STATE_DIR}/pending_${SESSION_KEY}_${KIND_KEY}_"* 2>/dev/null || true
+else
+    rm -f "${STATE_DIR}/pending_${SESSION_KEY}_"* 2>/dev/null || true
+fi
 
 exit 0

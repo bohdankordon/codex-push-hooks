@@ -29,6 +29,11 @@ $body" \
             is_short: true,
             text: {tag: "lark_md", content: ("**" + $label + "**\n" + $value)}
         };
+        def session_value:
+            if .event_kind == "user_input" and (.session_id | present)
+            then .session_id
+            else .session_short
+            end;
         {
             msg_type: "interactive",
             card: {
@@ -50,7 +55,13 @@ $body" \
                                 field("事件"; (.event_name // "unknown"))
                             ]
                             + (if (.tool_name | present) then [field("工具"; .tool_name)] else [] end)
-                            + (if (.session_short | present) then [field("Session"; .session_short)] else [] end)
+                            + (if (.event_kind == "user_input" and (.question_count // 0) > 0)
+                               then [field("问题数"; ((.question_count // 0) | tostring))]
+                               else [] end)
+                            + (if (.event_kind == "user_input" and ((.option_labels // []) | length) > 0)
+                               then [field("选项"; ((.option_labels // []) | join(" / ")))]
+                               else [] end)
+                            + (if (session_value | present) then [field("Session"; session_value)] else [] end)
                         )
                     },
                     {tag: "hr"},

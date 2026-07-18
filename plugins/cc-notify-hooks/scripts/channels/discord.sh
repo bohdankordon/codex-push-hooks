@@ -25,6 +25,11 @@ $body" \
     local payload
     payload=$(printf '%s' "$event_json" | jq --argjson color "$(notify_color_decimal "$(printf '%s' "$event_json" | jq -r '.status_color // "blue"')" )" '
         def present: . != null and . != "";
+        def session_value:
+            if .event_kind == "user_input" and (.session_id | present)
+            then .session_id
+            else .session_short
+            end;
         {
             embeds: [
                 {
@@ -37,7 +42,13 @@ $body" \
                             {name:"事件", value:(.event_name // "unknown"), inline:true}
                         ]
                         + (if (.tool_name | present) then [{name:"工具", value:.tool_name, inline:true}] else [] end)
-                        + (if (.session_short | present) then [{name:"Session", value:.session_short, inline:true}] else [] end)
+                        + (if (.event_kind == "user_input" and (.question_count // 0) > 0)
+                           then [{name:"问题数", value:((.question_count // 0) | tostring), inline:true}]
+                           else [] end)
+                        + (if (.event_kind == "user_input" and ((.option_labels // []) | length) > 0)
+                           then [{name:"选项", value:((.option_labels // []) | join(" / ")), inline:false}]
+                           else [] end)
+                        + (if (session_value | present) then [{name:"Session", value:session_value, inline:true}] else [] end)
                     ),
                     footer: {
                         text: ([.model, .cwd, .hostname] | map(select(. != null and . != "")) | join(" · "))

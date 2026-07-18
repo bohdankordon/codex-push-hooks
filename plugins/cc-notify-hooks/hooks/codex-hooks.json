@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'for root in \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/latest \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/* \"$HOME\"/.codex/cc-notify-hooks; do [ -f \"$root/scripts/notify.sh\" ] && exec bash \"$root/scripts/notify.sh\" notification; done; exit 0'",
+            "command": "bash \"${PLUGIN_ROOT}/scripts/notify.sh\" notification",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'for root in \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/latest \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/* \"$HOME\"/.codex/cc-notify-hooks; do [ -f \"$root/scripts/notify.sh\" ] && exec bash \"$root/scripts/notify.sh\" stop; done; exit 0'",
+            "command": "bash \"${PLUGIN_ROOT}/scripts/notify.sh\" stop",
             "timeout": 5
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'for root in \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/latest \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/* \"$HOME\"/.codex/cc-notify-hooks; do [ -f \"$root/scripts/clear_pending.sh\" ] && exec bash \"$root/scripts/clear_pending.sh\"; done; exit 0'",
+            "command": "bash \"${PLUGIN_ROOT}/scripts/clear_pending.sh\"",
             "timeout": 3
           }
         ]
@@ -42,7 +42,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'for root in \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/latest \"$HOME\"/.codex/plugins/cache/*/cc-notify-hooks/* \"$HOME\"/.codex/cc-notify-hooks; do [ -f \"$root/scripts/clear_pending.sh\" ] && exec bash \"$root/scripts/clear_pending.sh\"; done; exit 0'",
+            "command": "bash \"${PLUGIN_ROOT}/scripts/pre_tool_use.sh\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^request_user_input$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/scripts/clear_pending.sh\" user_input",
             "timeout": 3
           }
         ]

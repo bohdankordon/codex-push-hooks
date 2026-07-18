@@ -12,7 +12,7 @@ Claude Code 和 Codex CLI 任务常常需要几秒到几十分钟不等。你不
 
 **长通知（分钟级）** — 你可能离开了电脑、在开会、甚至不在手机旁。企业微信群、飞书群、Slack 频道这类**团队/异步渠道**会在几分钟后兜底通知。即使你错过了短通知，最终也能从工作沟通工具里看到任务状态。
 
-**核心机制**：每次推送前检查用户是否已响应（pending 文件是否还在）。用户一旦回来操作，所有排队中的推送自动作废。短通知解决了问题，长通知就不会再发。
+**核心机制**：每次推送前检查用户是否已响应（pending 文件是否还在）。用户一旦回来操作，当前 Session 排队中的推送自动作废，其他并行 Session 不受影响。短通知解决了问题，长通知就不会再发。
 
 ## 支持的渠道
 
@@ -48,8 +48,10 @@ Claude Code 和 Codex CLI 任务常常需要几秒到几十分钟不等。你不
 ```
 Claude Code / Codex CLI 事件
     │
+    ├─ Codex request_user_input → PreToolUse dispatcher → 等待输入通知
+    │                                      └─ PostToolUse → 定向取消
     ▼
-notify.sh ── 清除旧 pending → 创建新 pending
+notify.sh ── 清除当前 Session 的旧 pending → 创建新 pending
     │
     │  ┌── 短通知 ──────────────────────────────────┐
     ├─ │ 3s  → pending 还在？ → macOS 系统通知      │
@@ -60,8 +62,8 @@ notify.sh ── 清除旧 pending → 创建新 pending
     └─ │ 5m  → pending 还在？ → 企微 / 飞书 / Slack │
        └────────────────────────────────────────────┘
 
-用户回来操作（发消息 / 点权限按钮）
-    └─→ clear_pending.sh → 清除 pending → 后续推送全部取消
+用户回来操作（发消息 / 回答问题 / 点权限按钮）
+    └─→ clear_pending.sh → 清除当前 Session pending → 后续推送全部取消
          （短通知解决了，长通知就不发了）
 ```
 
@@ -88,7 +90,7 @@ notify.sh ── 清除旧 pending → 创建新 pending
 仓库根目录的 `.agents/plugins/marketplace.json` 是 Codex marketplace，实际插件目录是 `plugins/cc-notify-hooks/`。在终端执行：
 
 ```bash
-codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.3.0
+codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.3.1
 codex plugin add cc-notify-hooks@cc-notify-hooks
 ```
 
@@ -99,9 +101,9 @@ codex plugin add cc-notify-hooks@cc-notify-hooks
 codex_hooks = true
 ```
 
-之后重启 Codex，或在新会话中使用插件。
+之后重启 Codex，或在新会话中使用插件。安装或升级后，打开 `/hooks` 审阅并信任新增或变更的 hook 定义，否则 Codex 会跳过它们。
 
-注意：Codex 的 hook 命令运行目录是当前会话 `cwd`，不是插件根目录。`.codex-plugin/plugin.json` 只负责把 `hooks/codex-hooks.json` 作为生命周期配置打包进去；hook 命令不能写成 `./scripts/...`，否则在普通项目里会找不到脚本并报 `No such file or directory`。本插件的 Codex hook 会从 `~/.codex/plugins/cache/*/cc-notify-hooks/*/` 自动定位安装副本。
+注意：Codex 的 hook 命令运行目录是当前会话 `cwd`，不是插件根目录。`.codex-plugin/plugin.json` 只负责把 `hooks/codex-hooks.json` 作为生命周期配置打包进去；hook 命令不能写成 `./scripts/...`。本插件使用 Codex 提供的 `PLUGIN_ROOT` 定位脚本、使用 `PLUGIN_DATA` 保存插件配置和状态，因此兼容自定义 `CODEX_HOME`，不依赖固定的插件缓存路径。
 
 ### 方式三：本地插件模式
 
@@ -140,6 +142,8 @@ bash test_notify.sh list         # 查看已启用渠道及延迟
 bash test_notify.sh hook         # 模拟 Claude Code hook 流程
 bash test_notify.sh codex        # 模拟 Codex CLI PermissionRequest 事件
 bash test_notify.sh codex-plugin-hooks  # 验证 Codex 插件 hook 路径解析
+bash test_notify.sh user-input   # 验证 request_user_input dispatcher 与模板
+bash test_notify.sh state        # 验证多 Session 状态隔离与精确去重
 bash test_notify.sh render       # 验证通知内容模板
 ```
 
@@ -196,7 +200,7 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 |------|------|
 | `enabled` | 是否启用该渠道 |
 | `delay` | 推送延迟（秒），可自由调整 |
-| `events` | 可选，响应的事件类型，默认 `["notification", "stop"]` |
+| `events` | 可选，响应的事件类型，默认 `["notification", "stop"]`。Codex 等待输入在内部标记为 `user_input`，渠道过滤仍按 `notification`，旧配置无需修改 |
 | `format` | 可选，长通知渠道的展示格式。飞书默认 `card`，企业微信/钉钉/Slack 默认 `markdown`，Discord 默认 `embed` |
 | 其他字段 | 各渠道的凭证（key、webhook、token 等） |
 
@@ -295,9 +299,10 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 | PermissionRequest | Codex 请求授权时 | 分级推送 |
 | Stop | Codex 回合结束 | 分级推送 |
 | UserPromptSubmit | 用户发消息 | 清除 pending |
-| PreToolUse | 工具调用前 | 清除 pending |
+| PreToolUse | `request_user_input` 调用前 | 发送“需要回复”通知；其他工具清除当前 Session pending |
+| PostToolUse | `request_user_input` 收到回答后 | 只取消当前 Session 尚未发送的输入通知 |
 
-> Codex 没有 `Notification` 事件，使用 `PermissionRequest` 作为对应——只在真的需要授权时触发，不会被空闲提示干扰。
+> Codex 没有独立的等待输入事件。插件通过 `PreToolUse(request_user_input)` 精确识别等待状态，并复用 `notification` 渠道配置。
 
 ## 通知内容
 
@@ -307,6 +312,7 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 |------|------|
 | Claude Code Notification idle_prompt | `Claude Code · 等待响应 ⏳` |
 | Codex PermissionRequest | `Codex · 需要确认 🔔` |
+| Codex request_user_input | `Codex · 需要回复 🔔` |
 | Stop | `{Agent} · 任务完成 ✅` |
 | 异常 / 未知事件 | `{Agent} · 异常 ⚠️` |
 
@@ -317,6 +323,12 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 ```
 
 其中 `tool_name` 是条件字段，没有就不显示；`permission_mode` 不进入通知正文。
+
+Codex 等待输入使用专用短正文，包含问题数和短 Session id：
+
+```text
+[项目名] 首个问题摘要 · 2 个问题 · Session 019eabcd
+```
 
 长通知正文第一行显示 `summary_short`，随后显示定位字段：
 
@@ -331,7 +343,7 @@ Session: session_short
 model · cwd · hostname
 ```
 
-飞书默认发送消息卡片；企业微信、钉钉、Slack 使用近似 Markdown 模板；Discord 使用 embed。`summary_short` 来自 `message/prompt` 或 `last_assistant_message` 的首个非空行，最长保留 120 字。
+等待输入的长通知额外显示问题数、首题选项和完整 Session id。飞书默认发送消息卡片；企业微信、钉钉、Slack 使用近似 Markdown 模板；Discord 使用 embed。`summary_short` 来自 `message/prompt`、首个结构化问题或 `last_assistant_message` 的首个非空行，最长保留 120 字。
 
 ## 过滤规则
 
@@ -339,8 +351,8 @@ model · cwd · hostname
 |------|------|
 | 子智能体过滤 | `agent_id` 非空时跳过 |
 | Stop 循环保护 | `stop_hook_active=true` 时跳过 |
-| `/exit` 静默 | 后续 Stop 事件不推送 |
-| Rate Limiting | 同类事件默认 10 秒内只推一次 |
+| `/exit` 静默 | 只抑制当前 Session 后续的 Stop 事件 |
+| Rate Limiting | 按 Session + 事件类别限流；`request_user_input` 使用 `tool_use_id` 精确去重 |
 
 ## 文件结构
 
@@ -362,6 +374,7 @@ cc-notify-hooks/
 │   │   └── codex-hooks.json
 │   ├── scripts/
 │   │   ├── notify.sh
+│   │   ├── pre_tool_use.sh
 │   │   ├── clear_pending.sh
 │   │   └── channels/
 │   ├── config/notify.example.json

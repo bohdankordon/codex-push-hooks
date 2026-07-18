@@ -140,15 +140,15 @@
       <span class="demo-app">cc-notify-hooks</span>
       <span class="demo-time">now</span>
     </div>
-    <div class="demo-title">Codex · 需要确认 🔔</div>
-    <div class="demo-body">[cc-notify-hooks] 请求执行 git push origin main · Bash</div>
+    <div class="demo-title">Codex · 需要回复 🔔</div>
+    <div class="demo-body">[cc-notify-hooks] 修复范围 · 2 个问题 · Session 019eabcd</div>
   </div>
   <button class="demo-close" type="button" aria-label="关闭通知" onclick="hideDemoNotice()">×</button>
 </div>
 
 <!-- Hero -->
 <header class="hero">
-  <span class="badge">v2.3.0 · Claude Code &amp; Codex CLI Plugin</span>
+  <span class="badge">v2.3.1 · Claude Code &amp; Codex CLI Plugin</span>
   <h1>人可以闲着<br><em>Agent 不可以</em></h1>
   <p class="subtitle">cc-notify-hooks — Agent 时代的注意力调度器。短通知即时打断，长通知卡片化兜底，让 Claude Code 与 Codex CLI 不再空转等待。</p>
   <div class="hero-cta">
@@ -191,18 +191,20 @@
 <section>
   <div class="section-label">模板</div>
   <h2>短通知负责打断，长通知负责定位</h2>
-  <p>v2.3.0 起通知会先归一成同一批字段。短渠道只显示项目和一句摘要，长渠道第一行也放摘要，再补项目、事件、工具和 Session。</p>
+  <p>通知会先归一成同一批字段。短渠道只显示项目和一句摘要；Codex 等待结构化输入时还会显示问题数和 Session，长渠道再补 cwd 与首题选项。</p>
 
   <div class="template-preview">
     <h3>长通知卡片示例</h3>
     <p>飞书使用消息卡片，企业微信 / 钉钉 / Slack / Discord 使用近似模板。</p>
     <div class="template-card">
-      <strong>请求执行 Bash 命令：git push origin main</strong>
+      <strong>请选择这次修复的范围</strong>
       <dl>
         <dt>项目</dt><dd>cc-notify-hooks</dd>
-        <dt>事件</dt><dd>PermissionRequest</dd>
-        <dt>工具</dt><dd>Bash</dd>
-        <dt>Session</dt><dd>019eabcd</dd>
+        <dt>事件</dt><dd>PreToolUse</dd>
+        <dt>工具</dt><dd>request_user_input</dd>
+        <dt>问题数</dt><dd>2</dd>
+        <dt>选项</dt><dd>完整修复 / 最小补丁</dd>
+        <dt>Session</dt><dd>019eabcd-1234-5678</dd>
       </dl>
       <p style="margin-top:.8rem;color:var(--text2);font-size:.78rem">GPT-5 · /Users/mariozzj/Documents/project/cc-notify-hooks · Mario5Air</p>
     </div>
@@ -227,7 +229,7 @@
     <div class="step active">
       <span class="step-time">0s</span>
       <h3>事件触发</h3>
-      <p>Claude Code 或 Codex 需要权限确认 / 等待输入 / 任务完成，通知会先归一成项目、事件、工具、Session 和摘要。</p>
+      <p>Claude Code 或 Codex 需要权限确认 / 等待输入 / 任务完成时触发。Codex 的 <code>request_user_input</code> 由 PreToolUse 精确识别，回答后的 PostToolUse 定向取消延迟通知。</p>
     </div>
     <div class="step active">
       <span class="step-time">3 ~ 15s</span>
@@ -301,13 +303,13 @@
   </div>
   <div class="tab-content" id="tab1">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">添加 marketplace 并安装插件：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.3.0
+    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.3.1
 codex plugin add cc-notify-hooks@cc-notify-hooks</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">在 <code>~/.codex/config.toml</code> 启用 hooks（必需）：</p>
     <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>[features]
 codex_hooks = true</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Marketplace 位于仓库根目录，实际插件目录是 <code>plugins/cc-notify-hooks/</code>。</p>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:.75rem">Codex hook 会从插件缓存目录定位脚本；不要把 hook command 改成 <code>./scripts/...</code>，它会按当前会话目录解析。</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:.75rem">Codex hook 使用 <code>PLUGIN_ROOT</code> 定位脚本、使用 <code>PLUGIN_DATA</code> 保存配置和 Session 状态，不依赖固定缓存路径。安装或升级后请在 <code>/hooks</code> 中审阅并信任变更后的 hooks。</p>
   </div>
   <div class="tab-content" id="tab2">
     <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
@@ -335,7 +337,7 @@ bash install.sh codex            # 直接装到 Codex CLI</code></pre>
     </div>
     <div class="feat">
       <h3>&#128337; Rate Limiting</h3>
-      <p>同类事件 10 秒内只推一次，高频操作不会变成通知轰炸。</p>
+      <p>按 Session + 事件类别限流；结构化问题使用 tool_use_id 精确去重，不会吞掉下一次真实提问。</p>
     </div>
     <div class="feat">
       <h3>&#128295; 延迟可调</h3>
@@ -348,6 +350,10 @@ bash install.sh codex            # 直接装到 Codex CLI</code></pre>
     <div class="feat">
       <h3>&#128268; Claude &amp; Codex 双支持</h3>
       <p>同一份配置覆盖 Claude Code 与 Codex CLI。两套清单，两个 marketplace 入口，一次配置全部生效。</p>
+    </div>
+    <div class="feat">
+      <h3>&#128172; 结构化问题通知</h3>
+      <p>Codex 调用 request_user_input 后立即进入现有通知队列；回答后只取消当前 Session 尚未发送的提醒。</p>
     </div>
   </div>
 </section>

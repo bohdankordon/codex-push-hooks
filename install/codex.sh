@@ -140,7 +140,7 @@ echo -e "  ${CYAN}输入编号启用渠道（逗号分隔，如 1,2,7），直�
 printf "  选择: "
 read -r selection
 
-declare -A ENABLED_CHANNELS
+declare -A ENABLED_CHANNELS=()
 if [ -n "$selection" ]; then
     IFS=',' read -ra NUMS <<< "$selection"
     for num in "${NUMS[@]}"; do
@@ -164,7 +164,7 @@ fi
 echo ""
 
 # 收集凭证
-declare -A CHANNEL_CONFIGS
+declare -A CHANNEL_CONFIGS=()
 
 for def in "${CHANNEL_DEFS[@]}"; do
     IFS='|' read -r name display delay fields <<< "$def"
@@ -257,11 +257,17 @@ echo -e "  ${GREEN}✓${NC} 配置已写入 $CONFIG_FILE"
 #  [3/4] 安装脚本
 # ============================================================
 echo -e "${YELLOW}[3/4]${NC} 安装脚本..."
-mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels"
+mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels" "$SCRIPTS_DIR/lib"
 cp "$REPO_ROOT/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
 cp "$REPO_ROOT/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
+cp "$REPO_ROOT/scripts/pre_tool_use.sh" "$SCRIPTS_DIR/pre_tool_use.sh"
 cp "$REPO_ROOT/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
-chmod +x "$SCRIPTS_DIR/notify.sh" "$SCRIPTS_DIR/clear_pending.sh" "$SCRIPTS_DIR/channels/"*.sh
+cp "$REPO_ROOT/scripts/lib/"*.sh "$SCRIPTS_DIR/lib/"
+chmod +x \
+    "$SCRIPTS_DIR/notify.sh" \
+    "$SCRIPTS_DIR/clear_pending.sh" \
+    "$SCRIPTS_DIR/pre_tool_use.sh" \
+    "$SCRIPTS_DIR/channels/"*.sh
 echo -e "  ${GREEN}✓${NC} 脚本已复制到 $SCRIPTS_DIR"
 
 # 让 notify.sh 能找到 Codex 模式的配置
@@ -292,7 +298,11 @@ HOOKS_JSON=$(jq -n --arg s "$SCRIPTS_DIR" '
     }],
     PreToolUse: [{
       matcher: "*",
-      hooks: [{type: "command", command: ($s + "/clear_pending.sh"), timeout: 3}]
+      hooks: [{type: "command", command: ($s + "/pre_tool_use.sh"), timeout: 3}]
+    }],
+    PostToolUse: [{
+      matcher: "^request_user_input$",
+      hooks: [{type: "command", command: ($s + "/clear_pending.sh user_input"), timeout: 3}]
     }]
   }
 }')

@@ -20,12 +20,15 @@ CHANNELS_DIR="${SCRIPT_DIR}/channels"
 #  配置加载（JSON）
 # ============================================================
 CONFIG_FILE=""
+CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
 if [ -n "${CC_NOTIFY_CONFIG:-}" ] && [ -f "${CC_NOTIFY_CONFIG}" ]; then
     CONFIG_FILE="${CC_NOTIFY_CONFIG}"
+elif [ -n "${PLUGIN_DATA:-}" ] && [ -f "${PLUGIN_DATA}/notify.json" ]; then
+    CONFIG_FILE="${PLUGIN_DATA}/notify.json"
 elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json" ]; then
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
-elif [ -f "${HOME}/.codex/cc-notify-hooks/notify.json" ]; then
-    CONFIG_FILE="${HOME}/.codex/cc-notify-hooks/notify.json"
+elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
 fi
@@ -41,14 +44,19 @@ if [ -z "$CONFIG_FILE" ]; then
     fi
 fi
 
+# 缺少 jq 时安静降级，不能让通知 hook 阻塞 Codex。
+command -v jq >/dev/null 2>&1 || exit 0
+
 # 读取全局配置
 RATE_LIMIT=10
 if [ -n "$CONFIG_FILE" ]; then
     RATE_LIMIT=$(jq -r '.rate_limit // 10' "$CONFIG_FILE")
 fi
+[[ "$RATE_LIMIT" =~ ^[0-9]+$ ]] || RATE_LIMIT=10
 
 # 状态目录
-STATE_DIR="${HOME}/.claude/hooks/state"
+STATE_BASE="${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/hooks}}"
+STATE_DIR="${CC_NOTIFY_STATE_DIR:-${STATE_BASE}/state}"
 if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     mkdir -p "$STATE_DIR"
 fi
@@ -58,6 +66,7 @@ fi
 # ============================================================
 EVENT_DATA=$(cat)
 EVENT_TYPE="${1:-unknown}"
+EVENT_KIND="${2:-$EVENT_TYPE}"
 
 # 调试日志
 DEBUG_LOG="/tmp/claude-hooks-debug.log"
@@ -69,26 +78,47 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     } >> "$DEBUG_LOG"
 fi
 
-# 依赖检查
-if ! command -v jq &>/dev/null; then
-    echo "ERROR: jq is required" >&2
-    exit 0
-fi
-
 # 提取字段
-HOOK_EVENT=$(echo "$EVENT_DATA" | jq -r '.hook_event_name // empty' 2>/dev/null || echo "")
-MESSAGE=$(echo "$EVENT_DATA" | jq -r '.message // .prompt // empty' 2>/dev/null || echo "")
-CWD=$(echo "$EVENT_DATA" | jq -r '.cwd // empty' 2>/dev/null || echo "")
+HOOK_EVENT=$(printf '%s' "$EVENT_DATA" | jq -r '.hook_event_name // empty' 2>/dev/null || echo "")
+MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.message // .prompt // empty' 2>/dev/null || echo "")
+CWD=$(printf '%s' "$EVENT_DATA" | jq -r '.cwd // empty' 2>/dev/null || echo "")
 PROJECT=$(basename "${CWD:-unknown}")
 [ -n "$PROJECT" ] || PROJECT="unknown"
-SESSION_ID=$(echo "$EVENT_DATA" | jq -r '.session_id // empty' 2>/dev/null || echo "")
-TRANSCRIPT_PATH=$(echo "$EVENT_DATA" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
-PERM_MODE=$(echo "$EVENT_DATA" | jq -r '.permission_mode // empty' 2>/dev/null || echo "")
-AGENT_ID=$(echo "$EVENT_DATA" | jq -r '.agent_id // empty' 2>/dev/null || echo "")
-NOTIF_TYPE=$(echo "$EVENT_DATA" | jq -r '.notification_type // empty' 2>/dev/null || echo "")
-MODEL=$(echo "$EVENT_DATA" | jq -r '.model // empty' 2>/dev/null || echo "")
-TOOL_NAME=$(echo "$EVENT_DATA" | jq -r '(.tool_name // .tool.name // .tool // empty) | if type == "string" then . else empty end' 2>/dev/null || echo "")
-LAST_ASSISTANT_MESSAGE=$(echo "$EVENT_DATA" | jq -r '.last_assistant_message // empty' 2>/dev/null || echo "")
+SESSION_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+TURN_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.turn_id // empty' 2>/dev/null || echo "")
+TOOL_USE_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_use_id // empty' 2>/dev/null || echo "")
+TRANSCRIPT_PATH=$(printf '%s' "$EVENT_DATA" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+PERM_MODE=$(printf '%s' "$EVENT_DATA" | jq -r '.permission_mode // empty' 2>/dev/null || echo "")
+AGENT_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.agent_id // empty' 2>/dev/null || echo "")
+NOTIF_TYPE=$(printf '%s' "$EVENT_DATA" | jq -r '.notification_type // empty' 2>/dev/null || echo "")
+MODEL=$(printf '%s' "$EVENT_DATA" | jq -r '.model // empty' 2>/dev/null || echo "")
+TOOL_NAME=$(printf '%s' "$EVENT_DATA" | jq -r '(.tool_name // .tool.name // .tool // empty) | if type == "string" then . else empty end' 2>/dev/null || echo "")
+LAST_ASSISTANT_MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.last_assistant_message // empty' 2>/dev/null || echo "")
+QUESTION_COUNT=$(printf '%s' "$EVENT_DATA" | jq -r '
+    if (.tool_input.questions? | type) == "array"
+    then (.tool_input.questions | length)
+    else 0
+    end
+' 2>/dev/null || echo "0")
+QUESTION_HEADER=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_input.questions[0].header // empty' 2>/dev/null || echo "")
+QUESTION_TEXT=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_input.questions[0].question // empty' 2>/dev/null || echo "")
+OPTION_LABELS=$(printf '%s' "$EVENT_DATA" | jq -c '
+    [(.tool_input.questions[0].options // [])[]?
+        | .label?
+        | select(type == "string" and length > 0)]
+' 2>/dev/null || echo '[]')
+[[ "$QUESTION_COUNT" =~ ^[0-9]+$ ]] || QUESTION_COUNT=0
+
+safe_state_key() {
+    local value="${1:-unknown}"
+    value=$(printf '%s' "$value" | LC_ALL=C tr -c '[:alnum:]_.-' '_' | cut -c1-96)
+    printf '%s' "${value:-unknown}"
+}
+
+SESSION_SCOPE="${SESSION_ID:-${TURN_ID:-unknown}}"
+SESSION_KEY=$(safe_state_key "$SESSION_SCOPE")
+EVENT_KIND_KEY=$(safe_state_key "$EVENT_KIND")
+TOOL_USE_KEY=$(safe_state_key "${TOOL_USE_ID:-no-call}")
 
 NOW=$(date +%s)
 
@@ -101,26 +131,33 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     [ -n "$AGENT_ID" ] && exit 0
 
     # Stop hook 循环保护
-    STOP_ACTIVE=$(echo "$EVENT_DATA" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
+    STOP_ACTIVE=$(printf '%s' "$EVENT_DATA" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
     if [ "$EVENT_TYPE" = "stop" ] && [ "$STOP_ACTIVE" = "true" ]; then
         exit 0
     fi
 
     # /exit 后的 Stop 事件：跳过
-    if [ "$EVENT_TYPE" = "stop" ] && [ -f "${STATE_DIR}/exiting" ]; then
-        rm -f "${STATE_DIR}/exiting"
+    if [ "$EVENT_TYPE" = "stop" ] && [ -f "${STATE_DIR}/exiting_${SESSION_KEY}" ]; then
+        rm -f "${STATE_DIR}/exiting_${SESSION_KEY}"
         exit 0
     fi
 
-    # 防重复：同类事件在 RATE_LIMIT 秒内只推一次
-    RATE_FILE="${STATE_DIR}/last_${EVENT_TYPE}"
+    # 防重复：状态按 session + event kind 隔离。
+    # request_user_input 用 tool_use_id 精确去重，不吞掉紧接着出现的新问题。
+    RATE_FILE="${STATE_DIR}/last_${SESSION_KEY}_${EVENT_KIND_KEY}"
     if [ -f "$RATE_FILE" ]; then
-        LAST=$(cat "$RATE_FILE" 2>/dev/null || echo "0")
-        if [ $((NOW - LAST)) -lt "$RATE_LIMIT" ]; then
+        LAST=0
+        LAST_TOOL_USE_KEY=""
+        IFS=$'\t' read -r LAST LAST_TOOL_USE_KEY < "$RATE_FILE" || true
+        [[ "$LAST" =~ ^[0-9]+$ ]] || LAST=0
+
+        if [ "$EVENT_KIND" = "user_input" ] && [ -n "$TOOL_USE_ID" ]; then
+            [ "$LAST_TOOL_USE_KEY" = "$TOOL_USE_KEY" ] && exit 0
+        elif [ $((NOW - LAST)) -lt "$RATE_LIMIT" ]; then
             exit 0
         fi
     fi
-    echo "$NOW" > "$RATE_FILE"
+    printf '%s\t%s\n' "$NOW" "$TOOL_USE_KEY" > "$RATE_FILE"
 fi
 
 # ============================================================
@@ -163,41 +200,51 @@ SUMMARY_SOURCE=""
 STATUS_LABEL="需要确认 🔔"
 STATUS_COLOR="orange"
 
-case "$EVENT_TYPE" in
-    notification)
-        case "$NOTIF_TYPE" in
-            idle_prompt)
-                STATUS_LABEL="等待响应 ⏳"
-                STATUS_COLOR="blue"
-                SUMMARY_SOURCE="${MESSAGE:-等待你的响应}"
-                ;;
-            *)
-                STATUS_LABEL="需要确认 🔔"
-                STATUS_COLOR="orange"
-                SUMMARY_SOURCE="${MESSAGE:-需要你的操作}"
-                ;;
-        esac
-        ;;
-    stop)
-        STATUS_LABEL="任务完成 ✅"
-        STATUS_COLOR="green"
-        SUMMARY_SOURCE=$(first_line "$LAST_ASSISTANT_MESSAGE")
-        SUMMARY_SOURCE="${SUMMARY_SOURCE:-任务已完成}"
-        ;;
-    *)
-        STATUS_LABEL="异常 ⚠️"
-        STATUS_COLOR="red"
-        SUMMARY_SOURCE="${MESSAGE:-${HOOK_EVENT:-有新事件}}"
-        ;;
-esac
+if [ "$EVENT_KIND" = "user_input" ]; then
+    STATUS_LABEL="需要回复 🔔"
+    STATUS_COLOR="orange"
+    SUMMARY_SOURCE="${QUESTION_HEADER:-${QUESTION_TEXT:-Codex 正在等待你的输入}}"
+else
+    case "$EVENT_TYPE" in
+        notification)
+            case "$NOTIF_TYPE" in
+                idle_prompt)
+                    STATUS_LABEL="等待响应 ⏳"
+                    STATUS_COLOR="blue"
+                    SUMMARY_SOURCE="${MESSAGE:-等待你的响应}"
+                    ;;
+                *)
+                    STATUS_LABEL="需要确认 🔔"
+                    STATUS_COLOR="orange"
+                    SUMMARY_SOURCE="${MESSAGE:-需要你的操作}"
+                    ;;
+            esac
+            ;;
+        stop)
+            STATUS_LABEL="任务完成 ✅"
+            STATUS_COLOR="green"
+            SUMMARY_SOURCE=$(first_line "$LAST_ASSISTANT_MESSAGE")
+            SUMMARY_SOURCE="${SUMMARY_SOURCE:-任务已完成}"
+            ;;
+        *)
+            STATUS_LABEL="异常 ⚠️"
+            STATUS_COLOR="red"
+            SUMMARY_SOURCE="${MESSAGE:-${HOOK_EVENT:-有新事件}}"
+            ;;
+    esac
+fi
 
 SUMMARY_SHORT=$(truncate_text "$(trim_text "$(first_line "$SUMMARY_SOURCE")")" 120)
 [ -n "$SUMMARY_SHORT" ] || SUMMARY_SHORT="${EVENT_NAME:-有新事件}"
-SESSION_SHORT=$(short_session_id "$SESSION_ID")
+SESSION_SHORT=$(short_session_id "$SESSION_SCOPE")
 
 TITLE="${AGENT_NAME} · ${STATUS_LABEL}"
-BODY="[$PROJECT] $SUMMARY_SHORT"
-[ -n "$TOOL_NAME" ] && BODY="${BODY} · ${TOOL_NAME}"
+if [ "$EVENT_KIND" = "user_input" ]; then
+    BODY="[$PROJECT] $SUMMARY_SHORT · ${QUESTION_COUNT} 个问题 · Session ${SESSION_SHORT:-unknown}"
+else
+    BODY="[$PROJECT] $SUMMARY_SHORT"
+    [ -n "$TOOL_NAME" ] && BODY="${BODY} · ${TOOL_NAME}"
+fi
 
 EVENT_JSON=$(
     jq -n \
@@ -209,12 +256,15 @@ EVENT_JSON=$(
         --arg status_color "$STATUS_COLOR" \
         --arg summary_short "$SUMMARY_SHORT" \
         --arg event_name "$EVENT_NAME" \
+        --arg event_kind "$EVENT_KIND" \
         --arg tool_name "$TOOL_NAME" \
         --arg model "$MODEL" \
         --arg cwd "$CWD" \
         --arg hostname "$HOSTNAME_SHORT" \
         --arg session_id "$SESSION_ID" \
         --arg session_short "$SESSION_SHORT" \
+        --argjson question_count "$QUESTION_COUNT" \
+        --argjson option_labels "$OPTION_LABELS" \
         '{
             schema_version: 1,
             title: $title,
@@ -225,12 +275,15 @@ EVENT_JSON=$(
             status_color: $status_color,
             summary_short: $summary_short,
             event_name: $event_name,
+            event_kind: $event_kind,
             tool_name: $tool_name,
             model: $model,
             cwd: $cwd,
             hostname: $hostname,
             session_id: $session_id,
-            session_short: $session_short
+            session_short: $session_short,
+            question_count: $question_count,
+            option_labels: $option_labels
         }'
 )
 
@@ -242,10 +295,9 @@ fi
 # ============================================================
 #  创建 pending 标记
 # ============================================================
-rm -f "${STATE_DIR}"/pending_* 2>/dev/null || true
-PENDING_ID="${SESSION_ID}_${NOW}_$$"
-PENDING_FILE="${STATE_DIR}/pending_${PENDING_ID}"
-echo "$EVENT_TYPE" > "$PENDING_FILE"
+rm -f "${STATE_DIR}/pending_${SESSION_KEY}_"* 2>/dev/null || true
+PENDING_FILE="${STATE_DIR}/pending_${SESSION_KEY}_${EVENT_KIND_KEY}_${TOOL_USE_KEY}_${NOW}_$$"
+echo "$EVENT_KIND" > "$PENDING_FILE"
 
 # ============================================================
 #  构建发送队列并执行
