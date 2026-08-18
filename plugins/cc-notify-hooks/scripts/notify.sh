@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# Claude Code 分级推送通知 - 主调度器
+# cc-notify-hooks 分级推送通知 - 主调度器
 #
 # 机制：
 #   读取 JSON 配置 → 解析事件 → 过滤 → 按 delay 排序 → 后台分级推送
 #   用户交互 → clear_pending.sh 清除 pending → 推送自动取消
 #
-# 用法：由 Claude Code hooks 自动调用，通过 stdin 接收 JSON
+# 用法：由 Claude Code / Codex / Reasonix / dsh 的 hook 自动调用，
+#       通过 stdin 接收 JSON 事件（字段名按 agent 方言兼容）
 
 set -euo pipefail
 
@@ -21,6 +22,8 @@ CHANNELS_DIR="${SCRIPT_DIR}/channels"
 # ============================================================
 CONFIG_FILE=""
 CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
+REASONIX_HOME_DIR="${REASONIX_HOME:-${HOME}/.reasonix}"
+DSH_HOME_DIR="${DSH_HOME:-${HOME}/.dsh}"
 if [ -n "${CC_NOTIFY_CONFIG:-}" ] && [ -f "${CC_NOTIFY_CONFIG}" ]; then
     CONFIG_FILE="${CC_NOTIFY_CONFIG}"
 elif [ -n "${PLUGIN_DATA:-}" ] && [ -f "${PLUGIN_DATA}/notify.json" ]; then
@@ -29,6 +32,10 @@ elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
 elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
     CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    CONFIG_FILE="${DSH_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
 fi
@@ -79,12 +86,13 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
 fi
 
 # 提取字段
-HOOK_EVENT=$(printf '%s' "$EVENT_DATA" | jq -r '.hook_event_name // empty' 2>/dev/null || echo "")
+# hook_event_name（Claude/Codex/插件导入格式）优先，event（Reasonix 原生格式）兜底
+HOOK_EVENT=$(printf '%s' "$EVENT_DATA" | jq -r '.hook_event_name // .event // empty' 2>/dev/null || echo "")
 MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.message // .prompt // empty' 2>/dev/null || echo "")
 CWD=$(printf '%s' "$EVENT_DATA" | jq -r '.cwd // empty' 2>/dev/null || echo "")
 PROJECT=$(basename "${CWD:-unknown}")
 [ -n "$PROJECT" ] || PROJECT="unknown"
-SESSION_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+SESSION_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.session_id // .sessionId // empty' 2>/dev/null || echo "")
 TURN_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.turn_id // empty' 2>/dev/null || echo "")
 TOOL_USE_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_use_id // empty' 2>/dev/null || echo "")
 TRANSCRIPT_PATH=$(printf '%s' "$EVENT_DATA" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
@@ -93,7 +101,7 @@ AGENT_ID=$(printf '%s' "$EVENT_DATA" | jq -r '.agent_id // empty' 2>/dev/null ||
 NOTIF_TYPE=$(printf '%s' "$EVENT_DATA" | jq -r '.notification_type // empty' 2>/dev/null || echo "")
 MODEL=$(printf '%s' "$EVENT_DATA" | jq -r '.model // empty' 2>/dev/null || echo "")
 TOOL_NAME=$(printf '%s' "$EVENT_DATA" | jq -r '(.tool_name // .tool.name // .tool // empty) | if type == "string" then . else empty end' 2>/dev/null || echo "")
-LAST_ASSISTANT_MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.last_assistant_message // empty' 2>/dev/null || echo "")
+LAST_ASSISTANT_MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.last_assistant_message // .lastAssistantText // empty' 2>/dev/null || echo "")
 QUESTION_COUNT=$(printf '%s' "$EVENT_DATA" | jq -r '
     if (.tool_input.questions? | type) == "array"
     then (.tool_input.questions | length)
@@ -163,7 +171,14 @@ fi
 # ============================================================
 #  构造通知内容
 # ============================================================
-if [ "$HOOK_EVENT" = "Notification" ]; then
+# Agent 识别：显式覆盖 > Reasonix 插件环境 > dsh 插件环境 > 事件/path 特征
+if [ -n "${CC_NOTIFY_AGENT:-}" ]; then
+    AGENT_NAME="${CC_NOTIFY_AGENT}"
+elif [ -n "${REASONIX_PLUGIN_ROOT:-}" ]; then
+    AGENT_NAME="Reasonix"
+elif [ -n "${DSH_CC_NOTIFY:-}" ]; then
+    AGENT_NAME="dsh"
+elif [ "$HOOK_EVENT" = "Notification" ]; then
     AGENT_NAME="Claude Code"
 elif [[ "${TRANSCRIPT_PATH:-}" == *".claude"* ]]; then
     AGENT_NAME="Claude Code"
@@ -203,7 +218,7 @@ STATUS_COLOR="orange"
 if [ "$EVENT_KIND" = "user_input" ]; then
     STATUS_LABEL="需要回复 🔔"
     STATUS_COLOR="orange"
-    SUMMARY_SOURCE="${QUESTION_HEADER:-${QUESTION_TEXT:-Codex 正在等待你的输入}}"
+    SUMMARY_SOURCE="${QUESTION_HEADER:-${QUESTION_TEXT:-${AGENT_NAME} 正在等待你的输入}}"
 else
     case "$EVENT_TYPE" in
         notification)

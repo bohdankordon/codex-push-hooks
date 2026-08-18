@@ -12,6 +12,7 @@
 #   bash test_notify.sh user-input    # 验证 request_user_input dispatcher 与模板
 #   bash test_notify.sh state         # 验证 session scoped 状态、去重与清理
 #   bash test_notify.sh render        # 验证通知标题和正文模板
+#   bash test_notify.sh agents        # 验证 Reasonix / dsh 的 agent 识别与事件字段
 
 set -euo pipefail
 
@@ -596,6 +597,78 @@ test_render_templates() {
     echo -e "${GREEN}[模板渲染]${NC} ✅ 短通知和长通知字段符合预期"
 }
 
+# 验证 Reasonix / dsh 的 agent 识别与事件字段兼容
+test_agent_detection() {
+    echo -e "${YELLOW}[Agent 识别]${NC} 验证 Reasonix / dsh 的 agent 识别与事件字段..."
+
+    local out title body summary event_name
+
+    # Reasonix 插件导入格式（Claude 形状 payload + REASONIX_PLUGIN_ROOT 环境）
+    out=$(
+        printf '%s' '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"approval needed: bash git push origin main","session_id":"reasonix-session-1","cwd":"/tmp/demo-project"}' \
+            | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/cc-notify-hooks" \
+                CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" notification
+    )
+    title=$(echo "$out" | jq -r '.title')
+    status_label=$(echo "$out" | jq -r '.status_label')
+    summary=$(echo "$out" | jq -r '.summary_short')
+    if [ "$title" != "Reasonix · 需要确认 🔔" ] || [ "$status_label" != "需要确认 🔔" ] ||
+       [ "$summary" != "approval needed: bash git push origin main" ]; then
+        echo -e "${RED}[Agent 识别]${NC} Reasonix Notification 识别或模板错误: $out"
+        return 1
+    fi
+
+    # Reasonix 原生格式 payload（event / sessionId / lastAssistantText）
+    out=$(
+        printf '%s' '{"event":"Stop","sessionId":"reasonix-session-2","cwd":"/tmp/demo-project","lastAssistantText":"已完成检查","turn":1}' \
+            | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/cc-notify-hooks" \
+                CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
+    )
+    title=$(echo "$out" | jq -r '.title')
+    summary=$(echo "$out" | jq -r '.summary_short')
+    if [ "$title" != "Reasonix · 任务完成 ✅" ] || [ "$summary" != "已完成检查" ]; then
+        echo -e "${RED}[Agent 识别]${NC} Reasonix 原生 Stop 字段错误: $out"
+        return 1
+    fi
+
+    # dsh 插件环境（DSH_CC_NOTIFY）Stop 事件
+    out=$(
+        printf '%s' '{"hook_event_name":"Stop","session_id":"dsh-session-1","cwd":"/tmp/demo-project","stop_hook_active":false}' \
+            | DSH_CC_NOTIFY=1 CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
+    )
+    title=$(echo "$out" | jq -r '.title')
+    body=$(echo "$out" | jq -r '.body')
+    if [ "$title" != "dsh · 任务完成 ✅" ] || [[ "$body" != "[demo-project] 任务已完成"* ]]; then
+        echo -e "${RED}[Agent 识别]${NC} dsh Stop 识别或模板错误: $out"
+        return 1
+    fi
+
+    # 显式 CC_NOTIFY_AGENT 覆盖优先于环境特征
+    out=$(
+        printf '%s' '{"hook_event_name":"Stop","session_id":"x","cwd":"/tmp/demo-project"}' \
+            | REASONIX_PLUGIN_ROOT="/fake" DSH_CC_NOTIFY=1 CC_NOTIFY_AGENT="Custom Agent" \
+                CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
+    )
+    title=$(echo "$out" | jq -r '.title')
+    if [ "$title" != "Custom Agent · 任务完成 ✅" ]; then
+        echo -e "${RED}[Agent 识别]${NC} CC_NOTIFY_AGENT 覆盖未生效: $out"
+        return 1
+    fi
+
+    # 无环境特征时仍按旧逻辑识别（Notification → Claude Code）
+    out=$(
+        printf '%s' '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"waiting","session_id":"c","cwd":"/tmp/demo-project"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" notification
+    )
+    title=$(echo "$out" | jq -r '.title')
+    if [ "$title" != "Claude Code · 等待响应 ⏳" ]; then
+        echo -e "${RED}[Agent 识别]${NC} 无环境特征时 Claude Notification 识别错误: $out"
+        return 1
+    fi
+
+    echo -e "${GREEN}[Agent 识别]${NC} ✅ Reasonix / dsh / 覆盖顺序符合预期"
+}
+
 # 主逻辑
 case "$COMMAND" in
     list)
@@ -618,6 +691,9 @@ case "$COMMAND" in
         ;;
     render)
         test_render_templates
+        ;;
+    agents)
+        test_agent_detection
         ;;
     all)
         for ch_file in "${CHANNELS_DIR}"/*.sh; do

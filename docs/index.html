@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>cc-notify-hooks — AI Agent 时代的注意力调度器</title>
-<meta name="description" content="Claude Code 与 Codex CLI 分级推送通知插件。11 个渠道，短通知即时触达，长通知卡片化兜底。人可以闲着，Agent 不可以。">
+<meta name="description" content="Claude Code、Codex CLI、Reasonix 与 dsh 分级推送通知插件。11 个渠道，短通知即时触达，长通知卡片化兜底。人可以闲着，Agent 不可以。">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
@@ -148,9 +148,9 @@
 
 <!-- Hero -->
 <header class="hero">
-  <span class="badge">v2.3.1 · Claude Code &amp; Codex CLI Plugin</span>
+  <span class="badge">v2.4.0 · Claude Code · Codex · Reasonix · dsh</span>
   <h1>人可以闲着<br><em>Agent 不可以</em></h1>
-  <p class="subtitle">cc-notify-hooks — Agent 时代的注意力调度器。短通知即时打断，长通知卡片化兜底，让 Claude Code 与 Codex CLI 不再空转等待。</p>
+  <p class="subtitle">cc-notify-hooks — Agent 时代的注意力调度器。短通知即时打断，长通知卡片化兜底，让 Claude Code、Codex CLI、Reasonix 与 dsh 不再空转等待。</p>
   <div class="hero-cta">
     <a href="#install" class="btn btn-primary">立即安装</a>
     <a href="https://github.com/MarioZZJ/cc-notify-hooks" class="btn btn-outline">GitHub</a>
@@ -229,7 +229,7 @@
     <div class="step active">
       <span class="step-time">0s</span>
       <h3>事件触发</h3>
-      <p>Claude Code 或 Codex 需要权限确认 / 等待输入 / 任务完成时触发。Codex 的 <code>request_user_input</code> 由 PreToolUse 精确识别，回答后的 PostToolUse 定向取消延迟通知。</p>
+      <p>Claude Code / Codex / Reasonix / dsh 需要权限确认 / 等待输入 / 任务完成时触发。提问工具（Codex <code>request_user_input</code>、Reasonix <code>ask</code>、dsh <code>ask_user_question</code>）由 PreToolUse 精确识别，回答后的 PostToolUse 定向取消延迟通知。</p>
     </div>
     <div class="step active">
       <span class="step-time">3 ~ 15s</span>
@@ -288,12 +288,14 @@
 <section id="install">
   <div class="section-label">安装</div>
   <h2>两行命令，即刻生效</h2>
-  <p>Claude Code 与 Codex CLI 双支持，插件一键安装或独立脚本部署。</p>
+  <p>Claude Code、Codex CLI、Reasonix 与 dsh 四端支持，插件一键安装或独立脚本部署。</p>
 
   <div class="install-tabs">
     <button class="tab active" onclick="switchTab(0)">Claude Code Plugin</button>
     <button class="tab" onclick="switchTab(1)">Codex CLI Plugin</button>
-    <button class="tab" onclick="switchTab(2)">独立安装</button>
+    <button class="tab" onclick="switchTab(2)">Reasonix Plugin</button>
+    <button class="tab" onclick="switchTab(3)">dsh Plugin</button>
+    <button class="tab" onclick="switchTab(4)">独立安装</button>
   </div>
   <div class="tab-content active" id="tab0">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">在 Claude Code 中执行：</p>
@@ -303,7 +305,7 @@
   </div>
   <div class="tab-content" id="tab1">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">添加 marketplace 并安装插件：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.3.1
+    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
 codex plugin add cc-notify-hooks@cc-notify-hooks</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">在 <code>~/.codex/config.toml</code> 启用 hooks（必需）：</p>
     <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>[features]
@@ -312,11 +314,27 @@ codex_hooks = true</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:.75rem">Codex hook 使用 <code>PLUGIN_ROOT</code> 定位脚本、使用 <code>PLUGIN_DATA</code> 保存配置和 Session 状态，不依赖固定缓存路径。安装或升级后请在 <code>/hooks</code> 中审阅并信任变更后的 hooks。</p>
   </div>
   <div class="tab-content" id="tab2">
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Reasonix 原生读取仓库里的 <code>reasonix-plugin.json</code>（5 个 hook，Claude 形状 payload）：</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">本地开发可链接安装，仓库更新即时生效：</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+reasonix plugin install ./cc-notify-hooks/plugins/cc-notify-hooks --link --yes</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">配置写入 <code>~/.reasonix/cc-notify-hooks/notify.json</code>；安装后重启 Reasonix 会话（<code>/new</code> 不重新加载 hooks）。</p>
+  </div>
+  <div class="tab-content" id="tab3">
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">dsh 没有外部 shell hook，仓库内置零依赖宿主插件，直接订阅 dsh 拦截点（审批 / 回合结束 / 提问等）：</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+cd cc-notify-hooks && bash install/dsh.sh</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">安装脚本软链插件到 <code>~/node_modules/@dsh-local/dsh-cc-notify</code> 并在 <code>~/.dsh/cordis.patch.yml</code> 追加 insert 条目——dsh 热加载，正在运行的会话即刻生效。</p>
+  </div>
+  <div class="tab-content" id="tab4">
     <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 cd cc-notify-hooks
 bash install.sh                  # 交互式选择目标
 bash install.sh claude           # 直接装到 Claude Code
-bash install.sh codex            # 直接装到 Codex CLI</code></pre>
+bash install.sh codex            # 直接装到 Codex CLI
+bash install.sh reasonix         # 直接装到 Reasonix
+bash install.sh dsh              # 直接装到 dsh (DeepSeek Harness)</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">安装脚本会交互式引导你选择渠道、输入凭证，自动写入对应工具的配置。</p>
   </div>
 </section>
@@ -348,12 +366,12 @@ bash install.sh codex            # 直接装到 Codex CLI</code></pre>
       <p>macOS 用户装完即用，系统原生通知，不需要注册任何服务。</p>
     </div>
     <div class="feat">
-      <h3>&#128268; Claude &amp; Codex 双支持</h3>
-      <p>同一份配置覆盖 Claude Code 与 Codex CLI。两套清单，两个 marketplace 入口，一次配置全部生效。</p>
+      <h3>&#128268; 四端支持</h3>
+      <p>同一份配置覆盖 Claude Code、Codex CLI、Reasonix 与 dsh。两套清单 + Reasonix 原生清单 + dsh 宿主插件，一次配置全部生效。</p>
     </div>
     <div class="feat">
       <h3>&#128172; 结构化问题通知</h3>
-      <p>Codex 调用 request_user_input 后立即进入现有通知队列；回答后只取消当前 Session 尚未发送的提醒。</p>
+      <p>Codex <code>request_user_input</code>、Reasonix <code>ask</code>、dsh <code>ask_user_question</code> 触发后立即进入现有通知队列；回答后只取消当前 Session 尚未发送的提醒。</p>
     </div>
   </div>
 </section>
@@ -361,7 +379,7 @@ bash install.sh codex            # 直接装到 Codex CLI</code></pre>
 <!-- Final CTA -->
 <section style="text-align:center;padding-bottom:6rem">
   <h2 style="margin-bottom:.8rem">别让 Agent 等你</h2>
-  <p style="color:var(--text2);margin-bottom:2rem;font-size:1.05rem">两行命令，从此你的 Claude Code 与 Codex CLI 永不空转。</p>
+  <p style="color:var(--text2);margin-bottom:2rem;font-size:1.05rem">两行命令，从此你的 Claude Code、Codex、Reasonix 与 dsh 永不空转。</p>
   <div class="hero-cta">
     <a href="#install" class="btn btn-primary">立即安装</a>
     <a href="https://github.com/MarioZZJ/cc-notify-hooks" class="btn btn-outline">GitHub</a>

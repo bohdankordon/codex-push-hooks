@@ -1,0 +1,57 @@
+{
+  "apiVersion": "reasonix.io/plugin/v2",
+  "name": "cc-notify-hooks",
+  "version": "2.4.0",
+  "description": "Tiered push notifications for Reasonix — macOS, Bark, Telegram, Feishu, DingTalk, Slack, Discord, Pushover, ntfy, Gotify",
+  "homepage": "https://github.com/MarioZZJ/cc-notify-hooks",
+  "repository": "https://github.com/MarioZZJ/cc-notify-hooks",
+  "hooks": {
+    "Notification": [
+      {
+        "command": "bash",
+        "args": ["${REASONIX_PLUGIN_ROOT}/scripts/notify.sh", "notification"],
+        "payloadFormat": "claude",
+        "timeout": 5000,
+        "description": "等待工具审批/用户注意时推送通知"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "bash",
+        "args": ["${REASONIX_PLUGIN_ROOT}/scripts/notify.sh", "stop"],
+        "payloadFormat": "claude",
+        "timeout": 5000,
+        "description": "一轮对话结束时推送任务完成通知"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "bash",
+        "args": ["${REASONIX_PLUGIN_ROOT}/scripts/clear_pending.sh"],
+        "payloadFormat": "claude",
+        "timeout": 3000,
+        "description": "用户响应后取消排队中的推送"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "match": "*",
+        "command": "bash",
+        "args": ["${REASONIX_PLUGIN_ROOT}/scripts/pre_tool_use.sh"],
+        "payloadFormat": "claude",
+        "timeout": 3000,
+        "description": "工具执行前：ask 触发等待回复通知，其他工具清理 pending"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "match": "AskUserQuestion",
+        "command": "bash",
+        "args": ["${REASONIX_PLUGIN_ROOT}/scripts/clear_pending.sh", "user_input"],
+        "payloadFormat": "claude",
+        "timeout": 3000,
+        "description": "提问工具返回后清理 user_input pending"
+      }
+    ]
+  }
+}

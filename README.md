@@ -1,10 +1,10 @@
 # cc-notify-hooks
 
-**Claude Code** 与 **Codex CLI** 的分级推送通知系统。支持 **11 个通知渠道**，可作为插件或独立脚本使用，两边共享同一份配置。
+**Claude Code**、**Codex CLI**、**Reasonix** 与 **dsh（DeepSeek Harness）** 的分级推送通知系统。支持 **11 个通知渠道**，可作为插件或独立脚本使用，各 agent 共享同一份配置。
 
 ## 为什么需要分级通知？
 
-Claude Code 和 Codex CLI 任务常常需要几秒到几十分钟不等。你不会一直盯着终端，但又需要在合适的时候回来操作。
+Claude Code、Codex、Reasonix 和 dsh 的任务常常需要几秒到几十分钟不等。你不会一直盯着终端，但又需要在合适的时候回来操作。
 
 **cc-notify-hooks 将通知分为两级**：
 
@@ -90,7 +90,7 @@ notify.sh ── 清除当前 Session 的旧 pending → 创建新 pending
 仓库根目录的 `.agents/plugins/marketplace.json` 是 Codex marketplace，实际插件目录是 `plugins/cc-notify-hooks/`。在终端执行：
 
 ```bash
-codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.3.1
+codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
 codex plugin add cc-notify-hooks@cc-notify-hooks
 ```
 
@@ -121,17 +121,70 @@ claude --plugin-dir ./cc-notify-hooks/plugins/cc-notify-hooks
 ```bash
 git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 cd cc-notify-hooks
-bash install.sh                  # 交互式选择 Claude Code / Codex
+bash install.sh                  # 交互式选择 Claude Code / Codex / Reasonix / dsh
 bash install.sh claude           # 直接装到 Claude Code
 bash install.sh codex            # 直接装到 Codex CLI
+bash install.sh reasonix         # 直接装到 Reasonix
+bash install.sh dsh              # 直接装到 dsh (DeepSeek Harness)
 ```
 
 安装脚本会交互式引导你选择渠道、输入凭证，自动生成配置：
 
 - **Claude 分支**：写 `~/.claude/hooks/notify.json`，合并 hooks 到 `~/.claude/settings.json`
 - **Codex 分支**：写 `~/.codex/cc-notify-hooks/notify.json`，合并 hooks 到 `~/.codex/hooks.json`，提示你启用 `codex_hooks`
+- **Reasonix 分支**：写 `~/.reasonix/cc-notify-hooks/notify.json`，以 `reasonix plugin install --link` 注册本仓库插件（`reasonix-plugin.json` 声明 5 个 hook）
+- **dsh 分支**：写 `~/.dsh/cc-notify-hooks/notify.json`，软链插件包到 `~/node_modules/@dsh-local/dsh-cc-notify`，并在 `~/.dsh/cordis.patch.yml` 追加 insert 条目（dsh 热加载，无需重启）
 
-**Claude 安装后运行 `/reload-plugins` 刷新；Codex 安装后重启 Codex 进程。**
+**Claude 安装后运行 `/reload-plugins` 刷新；Codex 安装后重启 Codex 进程；Reasonix 安装后重启会话；dsh 安装后立即生效。**
+
+### 方式五：Reasonix 插件包（推荐 Reasonix 用户）
+
+Reasonix 原生支持本仓库的 `reasonix-plugin.json`（`reasonix.io/plugin/v2`），可从 GitHub 仓库或本地目录安装：
+
+```bash
+# 从 GitHub（仓库根是兼容的 Claude marketplace，会安装 plugins/cc-notify-hooks）
+reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes
+
+# 或本地 clone 后链接安装（开发模式，仓库更新即时生效）
+git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+reasonix plugin install ./cc-notify-hooks/plugins/cc-notify-hooks --link --yes
+```
+
+安装后：
+
+```bash
+reasonix plugin show cc-notify-hooks   # 查看 5 个 hook
+reasonix hook list --json              # 确认 hook 已加载
+```
+
+插件 hook 使用 `payloadFormat: "claude"`，脚本收到的 stdin 与 Claude Code 字段一致（`hook_event_name`/`session_id`/`message`…），共享同一份 `notify.sh`。配置文件放在 `~/.reasonix/cc-notify-hooks/notify.json`（也可复用 `~/.claude/hooks/notify.json` 或 `~/.codex/cc-notify-hooks/notify.json`，脚本按顺序查找）。
+
+### 方式六：dsh 插件（DeepSeek Harness）
+
+dsh 没有外部 shell hook，本仓库内置了一个零依赖的宿主插件 `dsh-cc-notify`（`plugins/cc-notify-hooks/dsh-plugin/`），直接订阅 dsh 的拦截点（`approval/request`、`agent/turn-stopping`、`agent/pre-step`、`tools/pre-execute`、`tools/post-execute`），并调用同一套 `scripts/`。
+
+推荐直接使用独立安装分支：
+
+```bash
+cd cc-notify-hooks && bash install/dsh.sh
+```
+
+它做三件事：软链插件包到 `~/node_modules/@dsh-local/dsh-cc-notify`、写 `~/.dsh/cc-notify-hooks/notify.json`、在 `~/.dsh/cordis.patch.yml` 追加：
+
+```yaml
+- insert:
+    - id: cc-notify-hooks
+      name: '@dsh-local/dsh-cc-notify'
+      config:
+        scriptsDir: /path/to/cc-notify-hooks/plugins/cc-notify-hooks/scripts
+        stateDir: /home/you/.claude/hooks/state
+```
+
+dsh 会热加载 `~/.dsh/cordis.patch.yml`，正在运行的会话即刻生效（`dsh web --dump-config` 可验证条目已进入组合树）。插件单元测试：
+
+```bash
+node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs
+```
 
 ### 验证
 
@@ -145,6 +198,8 @@ bash test_notify.sh codex-plugin-hooks  # 验证 Codex 插件 hook 路径解析
 bash test_notify.sh user-input   # 验证 request_user_input dispatcher 与模板
 bash test_notify.sh state        # 验证多 Session 状态隔离与精确去重
 bash test_notify.sh render       # 验证通知内容模板
+bash test_notify.sh agents       # 验证 Reasonix / dsh 的 agent 识别与事件字段
+node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh 插件单元测试
 ```
 
 ## 配置
@@ -304,6 +359,34 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 
 > Codex 没有独立的等待输入事件。插件通过 `PreToolUse(request_user_input)` 精确识别等待状态，并复用 `notification` 渠道配置。
 
+### Reasonix
+
+通过 `reasonix-plugin.json` 声明（`payloadFormat: "claude"`，脚本收到 Claude 形状的 stdin）：
+
+| Hook | 触发时机 | 行为 |
+|------|---------|------|
+| Notification | 等待工具审批等需要用户注意时（`notification_type=permission_prompt`） | 分级推送 |
+| Stop | 一轮对话结束（`last_assistant_message` 为摘要） | 分级推送 |
+| UserPromptSubmit | 用户发消息 | 清除 pending / `/exit` 标记 |
+| PreToolUse | `ask`（提问工具）调用前 | 发送"需要回复"通知；其他工具清除当前 Session pending |
+| PostToolUse | `AskUserQuestion` 收到回答后 | 只取消当前 Session 尚未发送的输入通知 |
+
+> Reasonix 的事件 key 与 Claude 一致（`hook_event_name`），脚本同时兼容 Reasonix 原生格式（`event`/`sessionId`/`lastAssistantText` 字段兜底）。安装后需重启 Reasonix 会话（`/new` 不会重新加载 hooks）。
+
+### dsh（DeepSeek Harness）
+
+通过宿主插件 `dsh-cc-notify` 订阅 dsh 拦截点（等价于外部 hook 的语义）：
+
+| 拦截点 | 触发时机 | 行为 |
+|------|---------|------|
+| `approval/request` | 工具审批等待用户决策时 | 分级推送"需要确认"（代理 `next()`，永不代答） |
+| `agent/turn-stopping` | 一轮结束的自然停止边界 | 分级推送"任务完成"（摘要来自 `assistant/message` 跟踪） |
+| `agent/pre-step` | 用户提交消息后 | 清除 pending / `/exit` 标记 |
+| `tools/pre-execute` | `ask_user_question` 调用前 | 发送"需要回复"通知；其他工具清除当前 Session pending |
+| `tools/post-execute` | `ask_user_question` 返回后 | 只取消当前 Session 尚未发送的输入通知 |
+
+> 插件只观察、不拦截：所有 waterfall 监听器都通过 `next()` 代理，绝不会阻塞或代答 dsh 的决策。
+
 ## 通知内容
 
 通知先归一为统一字段，再按短通知和长通知分别渲染。标题使用实际 Agent 名，不再写死为 Claude。
@@ -313,8 +396,14 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 | Claude Code Notification idle_prompt | `Claude Code · 等待响应 ⏳` |
 | Codex PermissionRequest | `Codex · 需要确认 🔔` |
 | Codex request_user_input | `Codex · 需要回复 🔔` |
+| Reasonix Notification（等待审批） | `Reasonix · 需要确认 🔔` |
+| Reasonix `ask` 提问 | `Reasonix · 需要回复 🔔` |
+| dsh `approval/request` | `dsh · 需要确认 🔔` |
+| dsh `ask_user_question` | `dsh · 需要回复 🔔` |
 | Stop | `{Agent} · 任务完成 ✅` |
 | 异常 / 未知事件 | `{Agent} · 异常 ⚠️` |
+
+Agent 名识别顺序：`CC_NOTIFY_AGENT` 环境变量（显式覆盖）→ Reasonix 插件环境 `REASONIX_PLUGIN_ROOT` → dsh 插件环境 `DSH_CC_NOTIFY` → 事件/path 特征（Notification 或 `.claude` 路径 → Claude Code，否则 Codex）。
 
 短通知正文只保留打断所需信息：
 
@@ -365,9 +454,14 @@ cc-notify-hooks/
 │   └── plugin.json -> ../plugins/cc-notify-hooks/.codex-plugin/plugin.json
 ├── .agents/plugins/
 │   └── marketplace.json     # Codex CLI marketplace（指向 plugins/cc-notify-hooks）
-├── plugins/cc-notify-hooks/ # 真实插件根目录，Claude/Codex 都从这里安装
+├── plugins/cc-notify-hooks/ # 真实插件根目录，Claude/Codex/Reasonix/dsh 都从这里安装
 │   ├── .claude-plugin/plugin.json
 │   ├── .codex-plugin/plugin.json
+│   ├── reasonix-plugin.json # Reasonix 原生插件清单（v2，5 个 hook）
+│   ├── dsh-plugin/          # dsh 宿主插件（零依赖 cordis 插件）
+│   │   ├── package.json
+│   │   ├── index.js
+│   │   └── test/plugin.test.mjs
 │   ├── skills/config/SKILL.md
 │   ├── hooks/
 │   │   ├── hooks.json
@@ -386,7 +480,9 @@ cc-notify-hooks/
 ├── install.sh               # 独立安装入口（路由）
 ├── install/
 │   ├── claude.sh            # Claude Code 安装分支
-│   └── codex.sh             # Codex CLI 安装分支
+│   ├── codex.sh             # Codex CLI 安装分支
+│   ├── reasonix.sh          # Reasonix 安装分支（reasonix plugin install --link）
+│   └── dsh.sh               # dsh 安装分支（软链插件 + cordis.patch.yml insert）
 └── test_notify.sh -> plugins/cc-notify-hooks/test_notify.sh
 ```
 
@@ -408,6 +504,19 @@ rm -rf ~/.claude/hooks/scripts ~/.claude/hooks/notify.json ~/.claude/hooks/state
 ```bash
 rm -rf ~/.codex/cc-notify-hooks
 # 手动编辑 ~/.codex/hooks.json 移除相关事件，可选关闭 codex_hooks
+```
+
+**独立安装（Reasonix）**：
+```bash
+reasonix plugin remove cc-notify-hooks --yes
+rm -rf ~/.reasonix/cc-notify-hooks
+```
+
+**独立安装（dsh）**：
+```bash
+rm -f ~/node_modules/@dsh-local/dsh-cc-notify
+# 手动编辑 ~/.dsh/cordis.patch.yml，删除 cc-notify-hooks 的 insert 条目
+rm -rf ~/.dsh/cc-notify-hooks
 ```
 
 ## License

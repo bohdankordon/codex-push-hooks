@@ -6,10 +6,14 @@
 #   bash install.sh           # 交互式选择目标
 #   bash install.sh claude    # 直接安装 Claude Code 分支
 #   bash install.sh codex     # 直接安装 Codex CLI 分支
+#   bash install.sh reasonix  # 直接安装 Reasonix 分支
+#   bash install.sh dsh       # 直接安装 dsh (DeepSeek Harness) 分支
 #
 # 或绕过路由直接调用子脚本：
 #   bash install/claude.sh
 #   bash install/codex.sh
+#   bash install/reasonix.sh
+#   bash install/dsh.sh
 
 set -euo pipefail
 
@@ -34,13 +38,17 @@ if [ -z "$TARGET" ]; then
     echo ""
     echo "    1) Claude Code  (~/.claude/)"
     echo "    2) Codex CLI    (~/.codex/)"
+    echo "    3) Reasonix     (~/.reasonix/)"
+    echo "    4) dsh          (~/.dsh/, DeepSeek Harness)"
     echo ""
-    printf "  选择 [1/2]: "
+    printf "  选择 [1/2/3/4]: "
     read -r choice
 
     case "$choice" in
         1) TARGET="claude" ;;
         2) TARGET="codex" ;;
+        3) TARGET="reasonix" ;;
+        4) TARGET="dsh" ;;
         *) echo -e "  ${YELLOW}无效选择，退出${NC}" ; exit 1 ;;
     esac
     echo ""
@@ -60,9 +68,19 @@ case "$TARGET" in
         echo ""
         exec bash "$REPO_ROOT/install/codex.sh"
         ;;
+    reasonix)
+        echo -e "${CYAN}→ 进入 Reasonix 分支${NC}"
+        echo ""
+        exec bash "$REPO_ROOT/install/reasonix.sh"
+        ;;
+    dsh|deepseek|harness)
+        echo -e "${CYAN}→ 进入 dsh 分支${NC}"
+        echo ""
+        exec bash "$REPO_ROOT/install/dsh.sh"
+        ;;
     *)
         echo "  未知目标: $TARGET"
-        echo "  支持的目标: claude, codex"
+        echo "  支持的目标: claude, codex, reasonix, dsh"
         exit 1
         ;;
 esac
