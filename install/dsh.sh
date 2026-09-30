@@ -274,15 +274,7 @@ echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 # ============================================================
 #  [3/5] Symlink the plugin package (~/.node_modules resolution path, same as dsh-feishu)
 # ============================================================
-echo -e "${YELLOW}[3/5]${NC} linking the plugin package..."
-mkdir -p "$NODE_MODULES_DIR"
-ln -sfn "$PLUGIN_PKG_DIR" "$PLUGIN_LINK"
-echo -e "  ${GREEN}✓${NC} $PLUGIN_LINK -> $PLUGIN_PKG_DIR"
-
-# ============================================================
-#  [4/5] Write ~/.dsh/cordis.patch.yml
-# ============================================================
-echo -e "${YELLOW}[4/5]${NC} writing the dsh plugin configuration..."
+echo -e "${YELLOW}[3/5]${NC} inspecting the dsh plugin state and linking the package..."
 
 PATCH_BLOCK="
 - insert:
@@ -293,13 +285,14 @@ PATCH_BLOCK="
         stateDir: ${STATE_DIR}"
 
 # Print one patch entry block: the id line plus following lines up to (but
-# not including) the next entry boundary or EOF.
+# not including) the next entry boundary or EOF. Entry matching is anchored
+# to real YAML list items so comments never count as entries.
 print_patch_block() {
     local patch_file="$1"
     local entry_id="$2"
     awk -v id="$entry_id" '
         BEGIN { in_block = 0 }
-        $0 ~ "- id: " id "$" && in_block == 0 { in_block = 1; print; next }
+        $0 ~ "^[[:space:]]*- id: " id "[[:space:]]*$" && in_block == 0 { in_block = 1; print; next }
         in_block == 1 {
             if ($0 ~ /^- insert:/ || $0 ~ /^[[:space:]]*- id: /) { exit }
             print
@@ -308,15 +301,15 @@ print_patch_block() {
 }
 
 # True when the legacy entry has exactly the known installer-generated shape.
-# Every check runs against that same entry block, never against global matches.
+# Every check is an anchored line match inside that same entry block.
 legacy_block_valid() {
     local patch_file="$1"
     local block
     block="$(print_patch_block "$patch_file" "$LEGACY_ENTRY_ID")"
     [ -n "$block" ] || return 1
-    printf '%s\n' "$block" | grep -qF "name: '@dsh-local/dsh-cc-notify'" || return 1
-    printf '%s\n' "$block" | grep -qF 'plugins/cc-notify-hooks/scripts' || return 1
-    printf '%s\n' "$block" | grep -q 'stateDir:' || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*name:[[:space:]]*'@dsh-local/dsh-cc-notify'[[:space:]]*$" || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*scriptsDir:[[:space:]]*.*plugins/cc-notify-hooks/scripts[[:space:]]*$" || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*stateDir:[[:space:]]*[^[:space:]]+[[:space:]]*$" || return 1
     return 0
 }
 
@@ -326,8 +319,8 @@ migrated_block_valid() {
     local block
     block="$(print_patch_block "$patch_file" "$PLUGIN_ENTRY_ID")"
     [ -n "$block" ] || return 1
-    printf '%s\n' "$block" | grep -qF "name: '@dsh-local/codex-push-hooks'" || return 1
-    printf '%s\n' "$block" | grep -qF 'plugins/codex-push-hooks/scripts' || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*name:[[:space:]]*'@dsh-local/codex-push-hooks'[[:space:]]*$" || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*scriptsDir:[[:space:]]*.*plugins/codex-push-hooks/scripts[[:space:]]*$" || return 1
     return 0
 }
 
@@ -346,58 +339,97 @@ migrate_legacy_patch_entry() {
     local patch_file="$1"
     local tmp_out="${patch_file}.tmp.$$"
     awk '
-        in_legacy == 0 && /- id: cc-notify-hooks$/ { in_legacy = 1; sub(/cc-notify-hooks$/, "codex-push-hooks") }
+        in_legacy == 0 && /^[[:space:]]*- id: cc-notify-hooks[[:space:]]*$/ { in_legacy = 1; sub(/cc-notify-hooks[[:space:]]*$/, "codex-push-hooks") }
         in_legacy == 1 && /@dsh-local\/dsh-cc-notify/ { sub(/@dsh-local\/dsh-cc-notify/, "@dsh-local/codex-push-hooks") }
         in_legacy == 1 && /scriptsDir:.*plugins\/cc-notify-hooks\/scripts/ { sub(/plugins\/cc-notify-hooks\/scripts/, "plugins/codex-push-hooks/scripts") }
         { print }
-        in_legacy == 1 && /stateDir:/ { in_legacy = 0 }
+        in_legacy == 1 && /^[[:space:]]*stateDir:/ { in_legacy = 0 }
     ' "$patch_file" > "$tmp_out" && mv "$tmp_out" "$patch_file"
 }
 
-# Inspect the patch state before any destructive action.
+# Preflight: inspect the patch state BEFORE creating, replacing, or removing
+# either plugin symlink. Entry detection is anchored to real YAML list items,
+# so a comment mentioning an id never counts as an entry.
 CANONICAL_PRESENT=false
 LEGACY_PRESENT=false
 if [ -f "$PATCH_FILE" ]; then
-    if grep -q "id: ${PLUGIN_ENTRY_ID}$" "$PATCH_FILE"; then
+    if grep -qE "^[[:space:]]*- id: ${PLUGIN_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE"; then
         CANONICAL_PRESENT=true
     fi
-    if grep -q "id: ${LEGACY_ENTRY_ID}$" "$PATCH_FILE"; then
+    if grep -qE "^[[:space:]]*- id: ${LEGACY_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE"; then
         LEGACY_PRESENT=true
     fi
 fi
 
+# Fatal patch states exit here with both plugin links unchanged.
 if $CANONICAL_PRESENT && $LEGACY_PRESENT; then
     echo -e "  ${RED}✗${NC} $PATCH_FILE contains both a ${PLUGIN_ENTRY_ID} entry and a legacy ${LEGACY_ENTRY_ID} entry."
-    echo -e "  ${YELLOW}Both integrations would fire at once. Neither entry was changed and the legacy link was kept.${NC}"
+    echo -e "  ${YELLOW}Both integrations would fire at once. Neither entry was changed and no plugin link was touched.${NC}"
     echo -e "  ${YELLOW}Remove the legacy ${LEGACY_ENTRY_ID} entry manually, then re-run this installer.${NC}"
     exit 1
-elif $CANONICAL_PRESENT; then
+elif $LEGACY_PRESENT && ! legacy_block_valid "$PATCH_FILE"; then
+    echo -e "  ${RED}✗${NC} the legacy ${LEGACY_ENTRY_ID} entry does not have the expected shape."
+    echo -e "  ${YELLOW}$PATCH_FILE and both plugin links were left unchanged.${NC}"
+    echo -e "  ${YELLOW}To recover manually:${NC}"
+    echo -e "    1. Inspect the ${LEGACY_ENTRY_ID} entry in $PATCH_FILE."
+    echo -e "    2. Delete that entry, or update it to id ${PLUGIN_ENTRY_ID} with name '@dsh-local/codex-push-hooks' and a codex-push-hooks scriptsDir."
+    echo -e "    3. Re-run this installer."
+    exit 1
+fi
+
+# Preflight passed: snapshot the canonical link state so a later failure can
+# restore it, then create/update the canonical link.
+LINK_WAS_PRESENT=false
+LINK_WAS_LINK=false
+LINK_TARGET=""
+if [ -L "$PLUGIN_LINK" ]; then
+    LINK_WAS_PRESENT=true
+    LINK_WAS_LINK=true
+    LINK_TARGET="$(readlink "$PLUGIN_LINK")"
+elif [ -e "$PLUGIN_LINK" ]; then
+    LINK_WAS_PRESENT=true
+fi
+mkdir -p "$NODE_MODULES_DIR"
+ln -sfn "$PLUGIN_PKG_DIR" "$PLUGIN_LINK"
+echo -e "  ${GREEN}✓${NC} $PLUGIN_LINK -> $PLUGIN_PKG_DIR"
+
+restore_link_state() {
+    # Best-effort rollback of the canonical link; never deletes real content.
+    if $LINK_WAS_LINK; then
+        ln -sfn "$LINK_TARGET" "$PLUGIN_LINK"
+    elif ! $LINK_WAS_PRESENT && [ -L "$PLUGIN_LINK" ]; then
+        rm -f "$PLUGIN_LINK"
+    fi
+}
+
+# ============================================================
+#  [4/5] Write ~/.dsh/cordis.patch.yml
+# ============================================================
+echo -e "${YELLOW}[4/5]${NC} writing the dsh plugin configuration..."
+
+# Patch block, entry helpers, and migration live in the step [3/5] preflight above.
+
+# Preflight already ruled out duplicate entries and invalid legacy shapes,
+# and no patch write happened since, so these flags are still accurate.
+if $CANONICAL_PRESENT; then
     echo -e "  ${YELLOW}⚠${NC} $PATCH_FILE already has a ${PLUGIN_ENTRY_ID} entry; skipping the write"
     # No legacy entry references the old link, so the stale link can go.
     remove_legacy_link
 elif $LEGACY_PRESENT; then
-    if ! legacy_block_valid "$PATCH_FILE"; then
-        echo -e "  ${RED}✗${NC} the legacy ${LEGACY_ENTRY_ID} entry does not have the expected shape."
-        echo -e "  ${YELLOW}$PATCH_FILE and the legacy link were left unchanged.${NC}"
-        echo -e "  ${YELLOW}To recover manually:${NC}"
-        echo -e "    1. Inspect the ${LEGACY_ENTRY_ID} entry in $PATCH_FILE."
-        echo -e "    2. Delete that entry, or update it to id ${PLUGIN_ENTRY_ID} with name '@dsh-local/codex-push-hooks' and a codex-push-hooks scriptsDir."
-        echo -e "    3. Re-run this installer."
-        exit 1
-    fi
     BACKUP="${PATCH_FILE}.backup.$(date +%Y%m%d%H%M%S)"
     cp "$PATCH_FILE" "$BACKUP"
     echo "  backed up the original configuration to: $BACKUP"
     migrate_legacy_patch_entry "$PATCH_FILE"
-    if [ "$(grep -c "id: ${PLUGIN_ENTRY_ID}$" "$PATCH_FILE")" = "1" ] \
-        && ! grep -q "id: ${LEGACY_ENTRY_ID}$" "$PATCH_FILE" \
+    if [ "$(grep -cE "^[[:space:]]*- id: ${PLUGIN_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE")" = "1" ] \
+        && ! grep -qE "^[[:space:]]*- id: ${LEGACY_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE" \
         && migrated_block_valid "$PATCH_FILE"; then
         echo -e "  ${GREEN}✓${NC} migrated the legacy ${LEGACY_ENTRY_ID} entry to ${PLUGIN_ENTRY_ID} (no duplicate registration)"
         # The migrated entry no longer references the old link.
         remove_legacy_link
     else
         cp "$BACKUP" "$PATCH_FILE"
-        echo -e "  ${RED}✗${NC} post-migration verification failed; restored $PATCH_FILE from the backup."
+        restore_link_state
+        echo -e "  ${RED}✗${NC} post-migration verification failed; restored $PATCH_FILE from the backup and rolled back the canonical link."
         echo -e "  ${YELLOW}Reconcile the entries manually, then re-run this installer.${NC}"
         exit 1
     fi

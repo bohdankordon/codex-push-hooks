@@ -832,7 +832,7 @@ test_install_smoke() {
         echo -e "${YELLOW}[Install Smoke]${NC} verifying canonical paths and legacy migration..."
 
         local tmp_base tmp_root repo_root probe_dir depth codex_home stubbin reasonix_home dsh_home
-        local have_symlinks probe_src probe_link dsh_bad_home dsh_dup_home
+        local have_symlinks probe_src probe_link dsh_bad_home dsh_dup_home dsh_comment_home
         tmp_base="${TMPDIR:-/tmp}"
         tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-install-smoke.XXXXXX")
         trap 'rm -rf "$tmp_root"' EXIT
@@ -965,6 +965,8 @@ test_install_smoke() {
             || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was mutated on failed migration"; return 1; }
         link_intact "${dsh_bad_home}/node_modules/@dsh-local/dsh-cc-notify" \
             || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link was removed on failed migration"; return 1; }
+        [ ! -e "${dsh_bad_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical link was created on failed migration"; return 1; }
         grep -q "id: codex-push-hooks" "${dsh_bad_home}/.dsh/cordis.patch.yml" \
             && { echo -e "${RED}[Install Smoke]${NC} dsh: canonical entry was partially created"; return 1; }
         echo -e "  dsh installer refuses an unexpected legacy shape without changing anything ✅"
@@ -987,11 +989,35 @@ test_install_smoke() {
             || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was mutated on duplicate stop"; return 1; }
         link_intact "${dsh_dup_home}/node_modules/@dsh-local/dsh-cc-notify" \
             || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link was removed on duplicate stop"; return 1; }
+        [ ! -e "${dsh_dup_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical link was created on duplicate stop"; return 1; }
         [ "$(grep -c "id: codex-push-hooks" "${dsh_dup_home}/.dsh/cordis.patch.yml")" = "1" ] \
             || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical entry count changed on duplicate stop"; return 1; }
         grep -q "id: cc-notify-hooks" "${dsh_dup_home}/.dsh/cordis.patch.yml" \
             || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy entry vanished on duplicate stop"; return 1; }
         echo -e "  dsh installer stops on duplicate old/new registration ✅"
+
+        # ---- dsh E: a comment mentioning an id is not a real entry ----
+        dsh_comment_home="${tmp_root}/dsh-comment-home"
+        mkdir -p "${dsh_comment_home}/.dsh/cc-notify-hooks" "${dsh_comment_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_comment_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-comment-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_comment_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '# historical example - id: codex-push-hooks (must never count as an entry)' '- insert:' '    - id: cc-notify-hooks' "      name: '@dsh-local/dsh-cc-notify'" '      config:' '        scriptsDir: /old/clone/plugins/cc-notify-hooks/scripts' '        stateDir: /old/state' \
+            > "${dsh_comment_home}/.dsh/cordis.patch.yml"
+        ln -s "${dsh_comment_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_comment_home}/node_modules/@dsh-local/dsh-cc-notify"
+        printf 'Y\n\n\n\n\n' | HOME="$dsh_comment_home" bash "${repo_root}/install/dsh.sh" >/dev/null
+        [ "$(grep -cE "^[[:space:]]*- id: codex-push-hooks[[:space:]]*$" "${dsh_comment_home}/.dsh/cordis.patch.yml")" = "1" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: comment confused entry detection"; return 1; }
+        ! grep -qE "^[[:space:]]*- id: cc-notify-hooks[[:space:]]*$" "${dsh_comment_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy entry was not migrated past the comment"; return 1; }
+        grep -q "historical example" "${dsh_comment_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: comment line was damaged by migration"; return 1; }
+        if [ "$have_symlinks" = "1" ]; then
+            [ ! -L "${dsh_comment_home}/node_modules/@dsh-local/dsh-cc-notify" ] \
+                || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link kept after comment-case migration"; return 1; }
+        fi
+        echo -e "  dsh installer ignores comment-only id mentions ✅"
 
         echo -e "${GREEN}[Install Smoke]${NC} ✅ canonical paths and legacy migration behave as expected"
     )
