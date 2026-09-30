@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 飞书群机器人 Webhook
+# Feishu group robot webhook
 
 send_feishu() {
     local title="$1" body="$2" config="$3" event_json="${4:-}"
@@ -51,15 +51,15 @@ $body" \
                         tag: "div",
                         fields: (
                             [
-                                field("项目"; (.project // "unknown")),
-                                field("事件"; (.event_name // "unknown"))
+                                field("Project"; (.project // "unknown")),
+                                field("Event"; (.event_name // "unknown"))
                             ]
-                            + (if (.tool_name | present) then [field("工具"; .tool_name)] else [] end)
+                            + (if (.tool_name | present) then [field("Tool"; .tool_name)] else [] end)
                             + (if (.event_kind == "user_input" and (.question_count // 0) > 0)
-                               then [field("问题数"; ((.question_count // 0) | tostring))]
+                               then [field("Questions"; ((.question_count // 0) | tostring))]
                                else [] end)
                             + (if (.event_kind == "user_input" and ((.option_labels // []) | length) > 0)
-                               then [field("选项"; ((.option_labels // []) | join(" / ")))]
+                               then [field("Options"; ((.option_labels // []) | join(" / ")))]
                                else [] end)
                             + (if (session_value | present) then [field("Session"; session_value)] else [] end)
                         )

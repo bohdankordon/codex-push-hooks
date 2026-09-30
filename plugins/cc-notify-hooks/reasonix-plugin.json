@@ -12,7 +12,7 @@
         "args": ["${REASONIX_PLUGIN_ROOT}/scripts/notify.sh", "notification"],
         "payloadFormat": "claude",
         "timeout": 5000,
-        "description": "等待工具审批/用户注意时推送通知"
+        "description": "Push a notification when tool approval or user attention is needed"
       }
     ],
     "Stop": [
@@ -21,7 +21,7 @@
         "args": ["${REASONIX_PLUGIN_ROOT}/scripts/notify.sh", "stop"],
         "payloadFormat": "claude",
         "timeout": 5000,
-        "description": "一轮对话结束时推送任务完成通知"
+        "description": "Push a task-completion notification when a conversation turn ends"
       }
     ],
     "UserPromptSubmit": [
@@ -30,7 +30,7 @@
         "args": ["${REASONIX_PLUGIN_ROOT}/scripts/clear_pending.sh"],
         "payloadFormat": "claude",
         "timeout": 3000,
-        "description": "用户响应后取消排队中的推送"
+        "description": "Cancel queued pushes once the user responds"
       }
     ],
     "PreToolUse": [
@@ -40,7 +40,7 @@
         "args": ["${REASONIX_PLUGIN_ROOT}/scripts/pre_tool_use.sh"],
         "payloadFormat": "claude",
         "timeout": 3000,
-        "description": "工具执行前：ask 触发等待回复通知，其他工具清理 pending"
+        "description": "Before a tool runs: ask triggers a waiting-for-reply notification, other tools clear pending"
       }
     ],
     "PostToolUse": [
@@ -50,7 +50,7 @@
         "args": ["${REASONIX_PLUGIN_ROOT}/scripts/clear_pending.sh", "user_input"],
         "payloadFormat": "claude",
         "timeout": 3000,
-        "description": "提问工具返回后清理 user_input pending"
+        "description": "Clear the user_input pending marker after the question tool returns"
       }
     ]
   }

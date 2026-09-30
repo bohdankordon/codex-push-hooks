@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bark 推送（iOS/macOS/Android）
+# Bark push (iOS/macOS/Android)
 
 send_bark() {
     local title="$1" body="$2" config="$3"

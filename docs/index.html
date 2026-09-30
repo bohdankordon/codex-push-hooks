@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>cc-notify-hooks — AI Agent 时代的注意力调度器</title>
-<meta name="description" content="Claude Code、Codex CLI、Reasonix 与 dsh 分级推送通知插件。11 个渠道，短通知即时触达，长通知卡片化兜底。人可以闲着，Agent 不可以。">
+<title>cc-notify-hooks — the attention scheduler for the AI agent era</title>
+<meta name="description" content="Tiered push notifications for Claude Code, Codex CLI, Reasonix, and dsh. 11 channels: short-delay notifications for instant reach, card-style fallback notifications as a safety net. Humans can idle; agents cannot.">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
@@ -140,19 +140,19 @@
       <span class="demo-app">cc-notify-hooks</span>
       <span class="demo-time">now</span>
     </div>
-    <div class="demo-title">Codex · 需要回复 🔔</div>
-    <div class="demo-body">[cc-notify-hooks] 修复范围 · 2 个问题 · Session 019eabcd</div>
+    <div class="demo-title">Codex · Reply needed 🔔</div>
+    <div class="demo-body">[cc-notify-hooks] Fix scope · Questions: 2 · Session 019eabcd</div>
   </div>
-  <button class="demo-close" type="button" aria-label="关闭通知" onclick="hideDemoNotice()">×</button>
+  <button class="demo-close" type="button" aria-label="Dismiss notification" onclick="hideDemoNotice()">×</button>
 </div>
 
 <!-- Hero -->
 <header class="hero">
   <span class="badge">v2.4.0 · Claude Code · Codex · Reasonix · dsh</span>
-  <h1>人可以闲着<br><em>Agent 不可以</em></h1>
-  <p class="subtitle">cc-notify-hooks — Agent 时代的注意力调度器。短通知即时打断，长通知卡片化兜底，让 Claude Code、Codex CLI、Reasonix 与 dsh 不再空转等待。</p>
+  <h1>Humans can idle<br><em>agents cannot</em></h1>
+  <p class="subtitle">cc-notify-hooks — the attention scheduler for the agent era. Short-delay notifications interrupt you instantly, card-style fallback notifications catch what you missed, and Claude Code, Codex CLI, Reasonix, and dsh never spin idle waiting for you.</p>
   <div class="hero-cta">
-    <a href="#install" class="btn btn-primary">立即安装</a>
+    <a href="#install" class="btn btn-primary">Install now</a>
     <a href="https://github.com/MarioZZJ/cc-notify-hooks" class="btn btn-outline">GitHub</a>
   </div>
   <div class="scroll-hint" style="color:var(--text2);font-size:.8rem">&#8595;</div>
@@ -160,50 +160,50 @@
 
 <!-- Pain Points -->
 <section>
-  <div class="section-label">问题</div>
-  <h2>Agent 在等你，你不知道</h2>
-  <p>这些场景每天都在发生。</p>
+  <div class="section-label">Problem</div>
+  <h2>Your agent is waiting and you have no idea</h2>
+  <p>These scenes play out every single day.</p>
   <div class="pain-grid">
     <div class="pain-card">
       <div class="pain-icon">&#9203;</div>
-      <h3>权限确认卡了 20 分钟</h3>
-      <p>Claude 需要你点一下"允许"，你切到浏览器看了篇文章，回来发现它等了你半小时。</p>
+      <h3>An approval sits for 20 minutes</h3>
+      <p>Claude needs you to click "Allow". You switch to the browser for one article and come back to find it has been waiting half an hour.</p>
     </div>
     <div class="pain-card">
       <div class="pain-icon">&#128564;</div>
-      <h3>任务完成了但你不知道</h3>
-      <p>跑了个大重构，你去喝咖啡。回来一看——10 分钟前就完成了，白等了。</p>
+      <h3>The task finished and you never noticed</h3>
+      <p>You kick off a big refactor and go for coffee. Coming back, you find it finished ten minutes ago — you waited for nothing.</p>
     </div>
     <div class="pain-card">
       <div class="pain-icon">&#127918;</div>
-      <h3>多个 Agent 同时跑</h3>
-      <p>3 个终端窗口 3 个任务。你根本记不住哪个需要你介入，哪个还在自己跑。</p>
+      <h3>Several agents run at once</h3>
+      <p>Three terminal windows, three tasks. You cannot keep track of which one needs you and which is still running on its own.</p>
     </div>
     <div class="pain-card">
       <div class="pain-icon">&#128170;</div>
-      <h3>离开电脑就失联</h3>
-      <p>开个会回来，发现 Agent 在第 3 分钟就卡住了，剩下 57 分钟纯浪费。</p>
+      <h3>Step away and you lose contact</h3>
+      <p>You come back from a meeting to find the agent stalled in minute three; the remaining 57 minutes were wasted.</p>
     </div>
   </div>
 </section>
 
 <!-- Message Template -->
 <section>
-  <div class="section-label">模板</div>
-  <h2>短通知负责打断，长通知负责定位</h2>
-  <p>通知会先归一成同一批字段。短渠道只显示项目和一句摘要；Codex 等待结构化输入时还会显示问题数和 Session，长渠道再补 cwd 与首题选项。</p>
+  <div class="section-label">Template</div>
+  <h2>Short-delay notifications interrupt, fallback notifications locate</h2>
+  <p>Notifications are normalized into the same set of fields first. Short-delay channels show only the project and a one-line summary; when Codex waits for structured input they also show the question count and session, and fallback channels add cwd and the first question's options.</p>
 
   <div class="template-preview">
-    <h3>长通知卡片示例</h3>
-    <p>飞书使用消息卡片，企业微信 / 钉钉 / Slack / Discord 使用近似模板。</p>
+    <h3>Example fallback notification card</h3>
+    <p>Feishu uses a message card; WeCom / DingTalk / Slack / Discord use an approximate template.</p>
     <div class="template-card">
-      <strong>请选择这次修复的范围</strong>
+      <strong>Choose the scope of this fix</strong>
       <dl>
-        <dt>项目</dt><dd>cc-notify-hooks</dd>
-        <dt>事件</dt><dd>PreToolUse</dd>
-        <dt>工具</dt><dd>request_user_input</dd>
-        <dt>问题数</dt><dd>2</dd>
-        <dt>选项</dt><dd>完整修复 / 最小补丁</dd>
+        <dt>Project</dt><dd>cc-notify-hooks</dd>
+        <dt>Event</dt><dd>PreToolUse</dd>
+        <dt>Tool</dt><dd>request_user_input</dd>
+        <dt>Questions</dt><dd>2</dd>
+        <dt>Options</dt><dd>Full fix / Minimal patch</dd>
         <dt>Session</dt><dd>019eabcd-1234-5678</dd>
       </dl>
       <p style="margin-top:.8rem;color:var(--text2);font-size:.78rem">GPT-5 · /Users/mariozzj/Documents/project/cc-notify-hooks · Mario5Air</p>
@@ -214,41 +214,41 @@
 <!-- Manifesto -->
 <section>
   <div class="manifesto">
-    <blockquote>在 Agent 时代，瓶颈不是算力，<em>是你的注意力</em>。<br>cc-notify-hooks 把注意力的分配权还给你。</blockquote>
-    <p>不需要盯着终端。不需要来回切窗口。Agent 需要你的时候，它会找到你。</p>
+    <blockquote>In the agent era, the bottleneck is not compute — <em>it is your attention</em>.<br>cc-notify-hooks hands the allocation of that attention back to you.</blockquote>
+    <p>No staring at the terminal. No switching windows. When an agent needs you, it will find you.</p>
   </div>
 </section>
 
 <!-- How it works -->
 <section>
-  <div class="section-label">机制</div>
-  <h2>短通知 + 长通知，两级调度</h2>
-  <p>推送前检查你是否已响应。回来了就停，没回来就升级。</p>
+  <div class="section-label">Mechanics</div>
+  <h2>Short-delay plus fallback: two-tier scheduling</h2>
+  <p>Every push checks whether you have already responded. If you are back, it stops; if not, it escalates.</p>
 
   <div class="pipeline">
     <div class="step active">
       <span class="step-time">0s</span>
-      <h3>事件触发</h3>
-      <p>Claude Code / Codex / Reasonix / dsh 需要权限确认 / 等待输入 / 任务完成时触发。提问工具（Codex <code>request_user_input</code>、Reasonix <code>ask</code>、dsh <code>ask_user_question</code>）由 PreToolUse 精确识别，回答后的 PostToolUse 定向取消延迟通知。</p>
+      <h3>Event triggers</h3>
+      <p>Claude Code / Codex / Reasonix / dsh need an approval, are waiting for input, or finish a task. Question tools (Codex <code>request_user_input</code>, Reasonix <code>ask</code>, dsh <code>ask_user_question</code>) are detected precisely through PreToolUse, and the PostToolUse that follows an answer cancels the delayed notifications for that call.</p>
     </div>
     <div class="step active">
       <span class="step-time">3 ~ 15s</span>
-      <h3>短通知 — 即时触达</h3>
-      <p>macOS 系统弹窗、Telegram 消息、Bark / Pushover / ntfy 手机推送。只显示 Agent、状态、项目和一句短摘要，不塞权限细节。</p>
+      <h3>Short-delay notification — instant reach</h3>
+      <p>macOS banners, Telegram messages, Bark / Pushover / ntfy phone pushes. Only the agent, status, project, and a one-line summary — no permission details.</p>
     </div>
     <div class="step">
       <div class="step-cancel">
-        <p>&#10003; 你看到通知回来了？后面的推送自动取消。</p>
+        <p>&#10003; Saw the notification and came back? The remaining pushes are cancelled automatically.</p>
       </div>
     </div>
     <div class="step active">
       <span class="step-time long">5 min</span>
-      <h3>长通知 — 异步兜底</h3>
-      <p>企业微信 / 飞书 / 钉钉 / Slack / Discord 群消息。飞书使用消息卡片，其余渠道用近似 Markdown / embed 模板，第一行就是短摘要。</p>
+      <h3>Fallback notification — async safety net</h3>
+      <p>WeCom / Feishu / DingTalk / Slack / Discord group messages. Feishu uses a message card and the other channels use approximate Markdown / embed templates; the first line is always the short summary.</p>
     </div>
     <div class="step">
       <div class="step-cancel">
-        <p>&#10003; 短通知已经解决了？长通知不会再发。零噪音。</p>
+        <p>&#10003; Did the short-delay notification already solve it? The fallback is never sent. Zero noise.</p>
       </div>
     </div>
   </div>
@@ -256,28 +256,28 @@
 
 <!-- Channels -->
 <section>
-  <div class="section-label">渠道</div>
-  <h2>11 个渠道，按需启用</h2>
-  <p>每个渠道的延迟可独立调整。不用的不开，开了的不烦。</p>
+  <div class="section-label">Channels</div>
+  <h2>11 channels, enable what you need</h2>
+  <p>Each channel has its own delay. Leave unused channels off, and the ones you enable will not nag you.</p>
 
   <div class="channel-group">
-    <h3><span class="short-dot"></span> 短通知渠道（即时触达）</h3>
+    <h3><span class="short-dot"></span> Short-delay channels (instant reach)</h3>
     <div class="channel-grid">
-      <div class="channel">macOS<small>3s 系统通知</small></div>
-      <div class="channel">Telegram<small>5s Bot 推送</small></div>
+      <div class="channel">macOS<small>3s system notification</small></div>
+      <div class="channel">Telegram<small>5s bot push</small></div>
       <div class="channel">Bark<small>15s iOS/Mac</small></div>
-      <div class="channel">Pushover<small>15s 跨平台</small></div>
-      <div class="channel">ntfy<small>15s 开源</small></div>
-      <div class="channel">Gotify<small>15s 自建</small></div>
+      <div class="channel">Pushover<small>15s cross-platform</small></div>
+      <div class="channel">ntfy<small>15s open source</small></div>
+      <div class="channel">Gotify<small>15s self-hosted</small></div>
     </div>
   </div>
 
   <div class="channel-group">
-    <h3><span class="long-dot"></span> 长通知渠道（异步兜底）</h3>
+    <h3><span class="long-dot"></span> Fallback channels (async safety net)</h3>
     <div class="channel-grid">
-      <div class="channel">企业微信<small>5min Markdown</small></div>
-      <div class="channel">飞书<small>5min 消息卡片</small></div>
-      <div class="channel">钉钉<small>5min Markdown</small></div>
+      <div class="channel">WeCom<small>5min Markdown</small></div>
+      <div class="channel">Feishu<small>5min message card</small></div>
+      <div class="channel">DingTalk<small>5min Markdown</small></div>
       <div class="channel">Slack<small>5min Blocks</small></div>
       <div class="channel">Discord<small>5min Embed</small></div>
     </div>
@@ -286,102 +286,102 @@
 
 <!-- Install -->
 <section id="install">
-  <div class="section-label">安装</div>
-  <h2>两行命令，即刻生效</h2>
-  <p>Claude Code、Codex CLI、Reasonix 与 dsh 四端支持，插件一键安装或独立脚本部署。</p>
+  <div class="section-label">Install</div>
+  <h2>Two commands and you are live</h2>
+  <p>Claude Code, Codex CLI, Reasonix, and dsh are all supported: install the plugin in one step or deploy the standalone scripts.</p>
 
   <div class="install-tabs">
     <button class="tab active" onclick="switchTab(0)">Claude Code Plugin</button>
     <button class="tab" onclick="switchTab(1)">Codex CLI Plugin</button>
     <button class="tab" onclick="switchTab(2)">Reasonix Plugin</button>
     <button class="tab" onclick="switchTab(3)">dsh Plugin</button>
-    <button class="tab" onclick="switchTab(4)">独立安装</button>
+    <button class="tab" onclick="switchTab(4)">Standalone</button>
   </div>
   <div class="tab-content active" id="tab0">
-    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">在 Claude Code 中执行：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>/plugin marketplace add MarioZZJ/cc-notify-hooks
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Inside Claude Code, run:</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>/plugin marketplace add MarioZZJ/cc-notify-hooks
 /plugin install cc-notify-hooks@cc-notify-hooks</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">安装后运行 <code>/cc-notify-hooks:config</code> 启动交互式配置向导。</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">After installing, run <code>/cc-notify-hooks:config</code> to start the interactive configuration wizard.</p>
   </div>
   <div class="tab-content" id="tab1">
-    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">添加 marketplace 并安装插件：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Add the marketplace and install the plugin:</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
 codex plugin add cc-notify-hooks@cc-notify-hooks</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">在 <code>~/.codex/config.toml</code> 启用 hooks（必需）：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>[features]
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Enable hooks in <code>~/.codex/config.toml</code> (required):</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>[features]
 codex_hooks = true</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Marketplace 位于仓库根目录，实际插件目录是 <code>plugins/cc-notify-hooks/</code>。</p>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:.75rem">Codex hook 使用 <code>PLUGIN_ROOT</code> 定位脚本、使用 <code>PLUGIN_DATA</code> 保存配置和 Session 状态，不依赖固定缓存路径。安装或升级后请在 <code>/hooks</code> 中审阅并信任变更后的 hooks。</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The marketplace lives at the repository root; the actual plugin directory is <code>plugins/cc-notify-hooks/</code>.</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:.75rem">Codex hooks use <code>PLUGIN_ROOT</code> to locate the scripts and <code>PLUGIN_DATA</code> to store configuration and session state, so they do not depend on a fixed cache path. After installing or upgrading, review and trust the changed hooks under <code>/hooks</code>.</p>
   </div>
   <div class="tab-content" id="tab2">
-    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Reasonix 原生读取仓库里的 <code>reasonix-plugin.json</code>（5 个 hook，Claude 形状 payload）：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">本地开发可链接安装，仓库更新即时生效：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Reasonix reads <code>reasonix-plugin.json</code> from the repository natively (5 hooks, Claude-shaped payloads):</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">For local development, link the install so repository changes take effect immediately:</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 reasonix plugin install ./cc-notify-hooks/plugins/cc-notify-hooks --link --yes</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">配置写入 <code>~/.reasonix/cc-notify-hooks/notify.json</code>；安装后重启 Reasonix 会话（<code>/new</code> 不重新加载 hooks）。</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Configuration is written to <code>~/.reasonix/cc-notify-hooks/notify.json</code>; restart the Reasonix session after installing (<code>/new</code> does not reload hooks).</p>
   </div>
   <div class="tab-content" id="tab3">
-    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">dsh 没有外部 shell hook，仓库内置零依赖宿主插件，直接订阅 dsh 拦截点（审批 / 回合结束 / 提问等）：</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+    <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">dsh has no external shell hooks; the repository ships a zero-dependency host plugin that subscribes directly to dsh interception points (approvals, turn ends, questions, and more):</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 cd cc-notify-hooks && bash install/dsh.sh</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">安装脚本软链插件到 <code>~/node_modules/@dsh-local/dsh-cc-notify</code> 并在 <code>~/.dsh/cordis.patch.yml</code> 追加 insert 条目——dsh 热加载，正在运行的会话即刻生效。</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The installer symlinks the plugin into <code>~/node_modules/@dsh-local/dsh-cc-notify</code> and appends an insert entry to <code>~/.dsh/cordis.patch.yml</code> — dsh hot-loads it, so running sessions pick it up immediately.</p>
   </div>
   <div class="tab-content" id="tab4">
-    <pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 cd cc-notify-hooks
-bash install.sh                  # 交互式选择目标
-bash install.sh claude           # 直接装到 Claude Code
-bash install.sh codex            # 直接装到 Codex CLI
-bash install.sh reasonix         # 直接装到 Reasonix
-bash install.sh dsh              # 直接装到 dsh (DeepSeek Harness)</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">安装脚本会交互式引导你选择渠道、输入凭证，自动写入对应工具的配置。</p>
+bash install.sh                  # interactively choose a target
+bash install.sh claude           # install into Claude Code directly
+bash install.sh codex            # install into Codex CLI directly
+bash install.sh reasonix         # install into Reasonix directly
+bash install.sh dsh              # install into dsh (DeepSeek Harness) directly</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The installer walks you through channel selection and credential entry, then writes the configuration for the tool you chose.</p>
   </div>
 </section>
 
 <!-- Features -->
 <section>
-  <div class="section-label">特性</div>
-  <h2>为 Agent 工作流设计</h2>
+  <div class="section-label">Features</div>
+  <h2>Built for agent workflows</h2>
 
   <div class="feat-grid">
     <div class="feat">
-      <h3>&#9889; 智能取消</h3>
-      <p>用户回来操作，排队中的推送全部作废。不会重复打扰。</p>
+      <h3>&#9889; Smart cancellation</h3>
+      <p>Come back and interact, and every queued push is voided. You are never interrupted twice.</p>
     </div>
     <div class="feat">
-      <h3>&#128263; 子智能体过滤</h3>
-      <p>子任务不会触发推送，只有主 Agent 的关键事件才会通知你。</p>
+      <h3>&#128263; Subagent filtering</h3>
+      <p>Subtasks never trigger a push; only the main agent's key events reach you.</p>
     </div>
     <div class="feat">
-      <h3>&#128337; Rate Limiting</h3>
-      <p>按 Session + 事件类别限流；结构化问题使用 tool_use_id 精确去重，不会吞掉下一次真实提问。</p>
+      <h3>&#128337; Rate limiting</h3>
+      <p>Throttled per session and event category; structured questions deduplicate by tool_use_id so the next real question is never swallowed.</p>
     </div>
     <div class="feat">
-      <h3>&#128295; 延迟可调</h3>
-      <p>每个渠道独立设置延迟。Telegram 5 秒、Bark 30 秒、飞书 10 分钟，你说了算。</p>
+      <h3>&#128295; Adjustable delays</h3>
+      <p>Every channel has its own delay. Telegram at 5 seconds, Bark at 30, Feishu at 10 minutes — your call.</p>
     </div>
     <div class="feat">
-      <h3>&#127759; macOS 零配置</h3>
-      <p>macOS 用户装完即用，系统原生通知，不需要注册任何服务。</p>
+      <h3>&#127759; Zero-config macOS</h3>
+      <p>macOS users are ready right after installing, with native system notifications and no service to sign up for.</p>
     </div>
     <div class="feat">
-      <h3>&#128268; 四端支持</h3>
-      <p>同一份配置覆盖 Claude Code、Codex CLI、Reasonix 与 dsh。两套清单 + Reasonix 原生清单 + dsh 宿主插件，一次配置全部生效。</p>
+      <h3>&#128268; Four integrations</h3>
+      <p>One configuration covers Claude Code, Codex CLI, Reasonix, and dsh: two marketplaces, a native Reasonix manifest, and a dsh host plugin, all configured at once.</p>
     </div>
     <div class="feat">
-      <h3>&#128172; 结构化问题通知</h3>
-      <p>Codex <code>request_user_input</code>、Reasonix <code>ask</code>、dsh <code>ask_user_question</code> 触发后立即进入现有通知队列；回答后只取消当前 Session 尚未发送的提醒。</p>
+      <h3>&#128172; Structured question notifications</h3>
+      <p>Codex <code>request_user_input</code>, Reasonix <code>ask</code>, and dsh <code>ask_user_question</code> enter the existing notification queue immediately; answering cancels only the reminders for the current session that have not been sent yet.</p>
     </div>
   </div>
 </section>
 
 <!-- Final CTA -->
 <section style="text-align:center;padding-bottom:6rem">
-  <h2 style="margin-bottom:.8rem">别让 Agent 等你</h2>
-  <p style="color:var(--text2);margin-bottom:2rem;font-size:1.05rem">两行命令，从此你的 Claude Code、Codex、Reasonix 与 dsh 永不空转。</p>
+  <h2 style="margin-bottom:.8rem">Do not make your agent wait</h2>
+  <p style="color:var(--text2);margin-bottom:2rem;font-size:1.05rem">Two commands, and your Claude Code, Codex, Reasonix, and dsh never sit idle again.</p>
   <div class="hero-cta">
-    <a href="#install" class="btn btn-primary">立即安装</a>
+    <a href="#install" class="btn btn-primary">Install now</a>
     <a href="https://github.com/MarioZZJ/cc-notify-hooks" class="btn btn-outline">GitHub</a>
   </div>
 </section>
@@ -397,7 +397,7 @@ function switchTab(i){
 }
 function copyCode(btn){
   const code=btn.parentElement.querySelector('code').textContent;
-  navigator.clipboard.writeText(code).then(()=>{btn.textContent='已复制';setTimeout(()=>btn.textContent='复制',1500)});
+  navigator.clipboard.writeText(code).then(()=>{btn.textContent='Copied';setTimeout(()=>{btn.textContent='Copy'},1500)});
 }
 function hideDemoNotice(){
   document.getElementById('demoNotice')?.classList.remove('show');

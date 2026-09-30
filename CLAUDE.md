@@ -1,70 +1,70 @@
 # cc-notify-hooks
 
-Claude Code、Codex CLI、Reasonix 与 dsh（DeepSeek Harness）的分级推送通知系统。通过 hook/拦截点触发多渠道通知，用户响应后自动取消排队中的推送。
+Tiered push notifications for Claude Code, Codex CLI, Reasonix, and dsh (DeepSeek Harness). Notifications are triggered through hooks/interception points, and queued pushes are cancelled automatically once the user responds.
 
-## 技术栈
+## Tech stack
 
-- **语言**: Bash（核心脚本）+ JavaScript（dsh 宿主插件，零依赖）
-- **依赖**: `jq`（JSON 解析）、`curl`（HTTP 请求）、`osascript`（macOS 通知）
-- **集成**: Claude Code / Codex CLI / Reasonix 的 hooks 插件机制 + dsh 的 cordis 拦截点
+- **Languages**: Bash (core scripts) + JavaScript (dsh host plugin, zero dependencies)
+- **Dependencies**: `jq` (JSON parsing), `curl` (HTTP requests), `osascript` (macOS notifications)
+- **Integrations**: the hook/plugin mechanisms of Claude Code / Codex CLI / Reasonix, plus dsh's cordis interception points
 
-## 项目结构
+## Project structure
 
 ```
-plugins/cc-notify-hooks/    # 真实插件根目录（根目录的 scripts/hooks/config 是软链）
-├── scripts/notify.sh       # 主调度器：事件过滤、延迟排队、渠道分发（兼容 4 个 agent 字段）
-├── scripts/clear_pending.sh# 清除待发通知（用户交互时触发）
-├── scripts/pre_tool_use.sh # 提问工具 dispatcher（request_user_input / ask / AskUserQuestion）
-├── scripts/channels/*.sh   # 11 个渠道实现
-├── hooks/hooks.json        # Claude Code hook 事件定义
-├── hooks/codex-hooks.json  # Codex CLI hook 事件定义
-├── reasonix-plugin.json    # Reasonix 原生插件清单（v2，payloadFormat=claude）
-├── dsh-plugin/             # dsh 宿主插件（cordis，订阅 5 个拦截点）
-├── .claude-plugin/         # Claude Code 插件清单
-├── .codex-plugin/          # Codex CLI 插件清单
+plugins/cc-notify-hooks/    # the real plugin root (the scripts/hooks/config entries at the repository root are symlinks)
+├── scripts/notify.sh       # main dispatcher: event filtering, delayed queueing, channel fan-out (compatible with all 4 agents' fields)
+├── scripts/clear_pending.sh# clear pending notifications (triggered on user interaction)
+├── scripts/pre_tool_use.sh # question-tool dispatcher (request_user_input / ask / AskUserQuestion)
+├── scripts/channels/*.sh   # 11 channel implementations
+├── hooks/hooks.json        # Claude Code hook event definitions
+├── hooks/codex-hooks.json  # Codex CLI hook event definitions
+├── reasonix-plugin.json    # native Reasonix plugin manifest (v2, payloadFormat=claude)
+├── dsh-plugin/             # dsh host plugin (cordis, subscribes to 5 interception points)
+├── .claude-plugin/         # Claude Code plugin manifest
+├── .codex-plugin/          # Codex CLI plugin manifest
 ├── config/notify.example.json
-└── skills/config/SKILL.md  # 交互式配置 skill（Claude Code 专属）
-install.sh                  # 独立安装入口（路由）
+└── skills/config/SKILL.md  # interactive configuration skill (Claude Code only)
+install.sh                  # standalone installer entry point (router)
 install/{claude,codex,reasonix,dsh}.sh
-test_notify.sh              # 渠道连通性 + 模板/agent 识别测试
+test_notify.sh              # channel connectivity + template/agent detection tests
 ```
 
-## 常用命令
+## Common commands
 
 ```bash
-# 安装
-bash install.sh                  # 交互式选择 Claude Code / Codex / Reasonix / dsh
+# Install
+bash install.sh                  # interactively choose Claude Code / Codex / Reasonix / dsh
 bash install.sh claude|codex|reasonix|dsh
 
-# 测试
-bash test_notify.sh              # 测试所有已启用渠道
-bash test_notify.sh bark         # 测试单个渠道
-bash test_notify.sh hook         # 模拟 Claude Code hook 流程
-bash test_notify.sh codex        # 模拟 Codex CLI PermissionRequest 事件
-bash test_notify.sh agents       # 验证 Reasonix / dsh agent 识别
-node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh 插件单元测试
+# Test
+bash test_notify.sh              # test every enabled channel
+bash test_notify.sh bark         # test a single channel
+bash test_notify.sh hook         # simulate the Claude Code hook flow
+bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event
+bash test_notify.sh agents       # verify Reasonix / dsh agent detection
+node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit tests
 
-# 插件模式运行
+# Run in plugin mode
 claude --plugin-dir ./cc-notify-hooks
 reasonix plugin install ./plugins/cc-notify-hooks --link --yes
 ```
 
-## 核心机制
+## Core mechanics
 
-- **分级延迟**: 短通知（秒级：macOS/Bark/Telegram）→ 长通知（分钟级：微信/飞书/钉钉/Slack）
-- **Pending 取消**: 发送前创建标记文件，用户响应时清除，后台进程检查标记决定是否发送
-- **速率限制**: 同类事件默认 10 秒内不重复推送
-- **事件过滤**: 跳过子 agent、Stop 循环保护、/exit 静默
+- **Tiered delays**: short-delay notifications (seconds: macOS/Bark/Telegram) → fallback notifications (minutes: WeCom/Feishu/DingTalk/Slack)
+- **Pending cancellation**: a marker file is created before sending and removed when the user responds; the background process checks the marker to decide whether to send
+- **Rate limiting**: by default the same event category is not pushed again within 10 seconds
+- **Event filtering**: skip subagents, Stop-loop protection, /exit silence
 
-## 配置
+## Configuration
 
-配置文件查找顺序（`scripts/notify.sh` 实现）:
-1. `${CC_NOTIFY_CONFIG}`（手动覆盖）
-2. `${PLUGIN_DATA}/notify.json`（Codex 插件模式）、`${CLAUDE_PLUGIN_DATA}/notify.json`（Claude 插件模式）
-3. `~/.codex/cc-notify-hooks/notify.json`（Codex 独立模式）
-4. `~/.reasonix/cc-notify-hooks/notify.json`（Reasonix，`REASONIX_HOME` 可覆盖）
-5. `~/.dsh/cc-notify-hooks/notify.json`（dsh，`DSH_HOME` 可覆盖）
-6. `~/.claude/hooks/notify.json`（Claude 独立模式）
+Configuration file lookup order (implemented in `scripts/notify.sh`):
+1. `${CC_NOTIFY_CONFIG}` (manual override)
+2. `${PLUGIN_DATA}/notify.json` (Codex plugin mode), `${CLAUDE_PLUGIN_DATA}/notify.json` (Claude plugin mode)
+3. `~/.codex/cc-notify-hooks/notify.json` (Codex standalone mode)
+4. `~/.reasonix/cc-notify-hooks/notify.json` (Reasonix; `REASONIX_HOME` can override the base directory)
+5. `~/.dsh/cc-notify-hooks/notify.json` (dsh; `DSH_HOME` can override the base directory)
+6. `~/.claude/hooks/notify.json` (Claude standalone mode)
 
 ```json
 {
@@ -79,72 +79,72 @@ reasonix plugin install ./plugins/cc-notify-hooks --link --yes
 }
 ```
 
-## 开发注意
+## Development notes
 
-- 所有渠道脚本遵循相同接口：接收 `$1`=标题 `$2`=内容，从环境变量/配置读取凭据
-- 渠道发送用 `|| true` 包裹，单个失败不影响其他渠道
-- 无配置文件时 macOS 用户自动降级为系统通知
+- Every channel script follows the same interface: `$1` is the title, `$2` is the body, and credentials come from environment variables or the configuration file
+- Channel sends are wrapped in `|| true`, so a single failure does not affect the other channels
+- Without a configuration file, macOS users automatically fall back to system notifications
 
-## 开发规范
+## Development conventions
 
-### 插件开发
+### Plugin development
 
 **Claude Code**:
-- 清单 `.claude-plugin/plugin.json`，hook 配置 `hooks/hooks.json`
-- 路径引用 `${CLAUDE_PLUGIN_ROOT}`（插件根）和 `${CLAUDE_PLUGIN_DATA}`（持久数据）
-- 插件变更后 `claude plugin validate .` 验证，`claude --plugin-dir .` 本地测试
-- skill 交互注意 AskUserQuestion 限制：每个问题 2-4 个选项
+- Manifest: `.claude-plugin/plugin.json`; hook configuration: `hooks/hooks.json`
+- Path references use `${CLAUDE_PLUGIN_ROOT}` (plugin root) and `${CLAUDE_PLUGIN_DATA}` (persistent data)
+- After changing the plugin, validate with `claude plugin validate .` and test locally with `claude --plugin-dir .`
+- When driving skill interactions, mind the AskUserQuestion limit: 2-4 options per question
 
 **Codex CLI**:
-- 清单 `.codex-plugin/plugin.json`，hook 配置 `hooks/codex-hooks.json`
-- Codex hook 命令以会话 `cwd` 执行，不能用 `./scripts/...`；插件模式需从 `~/.codex/plugins/cache/*/cc-notify-hooks/*/` 定位脚本
-- Marketplace `.agents/plugins/marketplace.json`，policy 必填 installation/authentication/category
-- 启用 hooks 需要 `~/.codex/config.toml` 添加 `[features]\ncodex_hooks = true`
-- 字段差异：Codex `prompt` ↔ Claude `message`（已在脚本里 fallback），Codex 无 Notification 事件（用 PermissionRequest 替代）
+- Manifest: `.codex-plugin/plugin.json`; hook configuration: `hooks/codex-hooks.json`
+- Codex hook commands run from the session `cwd`, so `./scripts/...` does not work; in plugin mode the scripts must be located from `~/.codex/plugins/cache/*/cc-notify-hooks/*/`
+- Marketplace: `.agents/plugins/marketplace.json`; the `policy` block requires `installation`/`authentication`/`category`
+- Enabling hooks requires `[features]` with `codex_hooks = true` in `~/.codex/config.toml`
+- Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)
 
 **Reasonix**:
-- 清单 `reasonix-plugin.json`（`reasonix.io/plugin/v2`，严格解析：不允许 author/license/keywords 等未知字段）
-- hook 用 exec form（`command: "bash"` + `args`）+ `payloadFormat: "claude"`——exec+claude 组合豁免插件根路径拼接，脚本才能收到 Claude 形状 stdin（`hook_event_name`/`session_id`/`message`/`notification_type`…）
-- Reasonix 支持 11 个事件：PreToolUse/PostToolUse/UserPromptSubmit/Stop/Notification/SessionStart/SessionEnd/SubagentStop/PreCompact/PostLLMCall/PermissionRequest
-- 审批等待触发 `Notification`（`notification_type=permission_prompt`），提问工具叫 `ask`（Claude 名 `AskUserQuestion`，输入 schema 与 notify.sh 解析兼容）
-- 安装/验证：`reasonix plugin install <dir> --dry-run`（看 compatibility）→ `--link --yes` → `reasonix hook list --json` / `reasonix doctor capabilities --json`
-- 原生 hook 的 stdin 用 `event`/`sessionId`/`lastAssistantText` 字段（脚本已兜底兼容）；插件导入格式才带 `hook_event_name`
-- hooks 在会话构建时加载：改配置后要重启会话，`/new` 不会重载
+- Manifest: `reasonix-plugin.json` (`reasonix.io/plugin/v2`, parsed strictly: unknown fields such as author/license/keywords are not allowed)
+- Hooks use exec form (`command: "bash"` + `args`) plus `payloadFormat: "claude"` — the exec+claude combination is exempt from plugin-root path joining, which is how the scripts receive Claude-shaped stdin (`hook_event_name`/`session_id`/`message`/`notification_type`…)
+- Reasonix supports 11 events: PreToolUse/PostToolUse/UserPromptSubmit/Stop/Notification/SessionStart/SessionEnd/SubagentStop/PreCompact/PostLLMCall/PermissionRequest
+- Waiting for approval fires `Notification` (`notification_type=permission_prompt`), and the question tool is called `ask` (Claude calls it `AskUserQuestion`; the input schema is compatible with the parsing in notify.sh)
+- Install/verify: `reasonix plugin install <dir> --dry-run` (check compatibility) → `--link --yes` → `reasonix hook list --json` / `reasonix doctor capabilities --json`
+- Native hook stdin uses the `event`/`sessionId`/`lastAssistantText` fields (the scripts already handle them as a fallback); only the plugin import format carries `hook_event_name`
+- Hooks are loaded when a session is built: restart the session after changing the configuration; `/new` does not reload them
 
-**dsh（DeepSeek Harness）**:
-- 宿主插件 `dsh-plugin/`（cordis，`export const name` + `export function apply(ctx, config)`，零依赖仅用 node 内置）
-- 订阅拦截点：`approval/request`（瀑布，观察后必须 `next()` 代理）、`agent/turn-stopping`（serial，payload 带 `agent` 注入）、`agent/pre-step`、`tools/pre-execute`（`exec.name/arguments/callId/agent`）、`tools/post-execute`、`session/event`（跟踪 `assistant/message` 摘要）
-- 提问工具叫 `ask_user_question`，插件转发时改写为 `request_user_input` 复用 pre_tool_use.sh 的解析
-- 安装方式（与 dsh-feishu 相同）：软链到 `~/node_modules/@dsh-local/dsh-cc-notify` + `~/.dsh/cordis.patch.yml` 追加 insert（`name: '@dsh-local/dsh-cc-notify'`）
-- dsh 热加载 home 级 `~/.dsh/cordis.patch.yml`（`watchUserPatches`），运行中会话无需重启；`dsh web --dump-config` 验证组合树
-- 插件测试：`node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs`（stub 脚本捕获 spawn，mock ctx 驱动事件）
+**dsh (DeepSeek Harness)**:
+- Host plugin in `dsh-plugin/` (cordis: `export const name` + `export function apply(ctx, config)`, zero dependencies and only Node built-ins)
+- Subscribed interception points: `approval/request` (waterfall — after observing, it must proxy with `next()`), `agent/turn-stopping` (serial, payload carries the injected `agent`), `agent/pre-step`, `tools/pre-execute` (`exec.name/arguments/callId/agent`), `tools/post-execute`, `session/event` (tracks the `assistant/message` summary)
+- The question tool is called `ask_user_question`; when forwarding, the plugin rewrites it to `request_user_input` so it reuses the parsing in pre_tool_use.sh
+- Installation (same as dsh-feishu): symlink into `~/node_modules/@dsh-local/dsh-cc-notify` + append an insert entry to `~/.dsh/cordis.patch.yml` (`name: '@dsh-local/dsh-cc-notify'`)
+- dsh hot-loads the home-level `~/.dsh/cordis.patch.yml` (`watchUserPatches`), so running sessions need no restart; `dsh web --dump-config` verifies the composition tree
+- Plugin tests: `node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs` (stub scripts capture spawns, a mock ctx drives the events)
 
-**多 agent 共用**:
-- 渠道脚本接口：`$1`=标题 `$2`=内容，从环境变量/配置读取凭据
-- 渠道发送 `|| true` 包裹，单个失败不影响其他渠道
-- Agent 名识别（notify.sh）：`CC_NOTIFY_AGENT` 覆盖 → `REASONIX_PLUGIN_ROOT`（Reasonix）→ `DSH_CC_NOTIFY`（dsh）→ Notification/`.claude` 路径（Claude Code）→ 默认 Codex
-- state 目录默认共用 `~/.claude/hooks/state`，按 session 隔离
+**Shared across agents**:
+- Channel script interface: `$1` is the title, `$2` is the body, credentials come from environment variables or the configuration file
+- Channel sends are wrapped in `|| true`, so a single failure does not affect the other channels
+- Agent detection (notify.sh): `CC_NOTIFY_AGENT` override → `REASONIX_PLUGIN_ROOT` (Reasonix) → `DSH_CC_NOTIFY` (dsh) → Notification/`.claude` path (Claude Code) → Codex by default
+- The state directory defaults to the shared `~/.claude/hooks/state`, isolated per session
 
-### 版本与发布
+### Versioning and release
 
-- 版本号遵循语义化版本（MAJOR.MINOR.PATCH）
-- 更新版本号前必须向用户确认目标版本号，不得自行决定
-- 六份清单同步更新版本号：`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json`、`.codex-plugin/plugin.json`、`.agents/plugins/marketplace.json`、`plugins/cc-notify-hooks/reasonix-plugin.json`、`plugins/cc-notify-hooks/dsh-plugin/package.json`
-- 功能变更须同步更新 README 与 `docs/index.html`（GitHub Pages）
-- 发布流程：commit → push → `gh release create vX.Y.Z`
+- Version numbers follow semantic versioning (MAJOR.MINOR.PATCH)
+- Before bumping a version you must confirm the target version with the user; never decide it on your own
+- Keep the version in sync across six manifests: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `plugins/cc-notify-hooks/reasonix-plugin.json`, `plugins/cc-notify-hooks/dsh-plugin/package.json`
+- Feature changes must be reflected in the README and in `docs/index.html` (GitHub Pages)
+- Release flow: commit → push → `gh release create vX.Y.Z`
 
-### README 维护
+### README maintenance
 
-- 新增功能必须更新 README 的对应章节（配置、文件结构等）
-- 用户不一定需要重启 Claude Code，`/reload-plugins` 即可刷新插件
+- New features must update the corresponding README sections (configuration, file structure, and so on)
+- Users do not necessarily need to restart Claude Code; `/reload-plugins` is enough to refresh the plugin
 
-## 参考文档
+## References
 
-- [Claude Code 插件开发指南](https://code.claude.com/docs/en/plugins.md)
-- [Claude Code 插件参考](https://code.claude.com/docs/en/plugins-reference.md)
-- [Codex Hooks 文档](https://developers.openai.com/codex/hooks)
-- [Codex 配置参考](https://developers.openai.com/codex/config-reference)
-- [Reasonix 插件包文档](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/PLUGIN_PACKAGES.md)
-- [Reasonix Desktop Hooks 文档](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/DESKTOP_HOOKS.zh-CN.md)
-- dsh 拦截点 Agent Note：`~/.dsh/source/current/.agents/notes/implemented/feature/2026-06-30-interception-extension-points.md`
-- dsh 审批 seam Agent Note：`~/.dsh/source/current/.agents/notes/implemented/feature/2026-07-06-approval-seam.md`
+- [Claude Code plugin development guide](https://code.claude.com/docs/en/plugins.md)
+- [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference.md)
+- [Codex hooks documentation](https://developers.openai.com/codex/hooks)
+- [Codex configuration reference](https://developers.openai.com/codex/config-reference)
+- [Reasonix plugin package documentation](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/PLUGIN_PACKAGES.md)
+- [Reasonix Desktop hooks documentation](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/DESKTOP_HOOKS.zh-CN.md)
+- dsh interception points Agent Note: `~/.dsh/source/current/.agents/notes/implemented/feature/2026-06-30-interception-extension-points.md`
+- dsh approval seam Agent Note: `~/.dsh/source/current/.agents/notes/implemented/feature/2026-07-06-approval-seam.md`

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks 独立安装脚本（dsh / DeepSeek Harness 分支）
-# 配置写入 ~/.dsh/cc-notify-hooks/notify.json，
-# 插件包软链到 ~/node_modules/@dsh-local/dsh-cc-notify，
-# 并在 ~/.dsh/cordis.patch.yml 追加 insert 条目（热加载，无需重启）。
+# cc-notify-hooks standalone install script (dsh / DeepSeek Harness branch)
+# Writes the configuration to ~/.dsh/cc-notify-hooks/notify.json,
+# symlinks the plugin package into ~/node_modules/@dsh-local/dsh-cc-notify,
+# and appends an insert entry to ~/.dsh/cordis.patch.yml (hot-loaded, no restart needed).
 #
-# 既可被 install.sh 路由调用，也可独立运行：
+# Can be called by the install.sh router or run on its own:
 #   bash install/dsh.sh
 
 set -euo pipefail
@@ -16,7 +16,7 @@ SCRIPTS_DIR="${REPO_ROOT}/plugins/cc-notify-hooks/scripts"
 DSH_HOME_DIR="${DSH_HOME:-${HOME}/.dsh}"
 INSTALL_DIR="${DSH_HOME_DIR}/cc-notify-hooks"
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
-STATE_DIR="${HOME}/.claude/hooks/state"  # 与其他 agent 共用 state 目录
+STATE_DIR="${HOME}/.claude/hooks/state"  # shared state directory for all agents
 PATCH_FILE="${DSH_HOME_DIR}/cordis.patch.yml"
 NODE_MODULES_DIR="${HOME}/node_modules/@dsh-local"
 PLUGIN_LINK="${NODE_MODULES_DIR}/dsh-cc-notify"
@@ -33,19 +33,19 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - dsh 独立安装"
-echo "  平台: $(uname -s) $(uname -m)"
+echo "  cc-notify-hooks - dsh standalone install"
+echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
 
 # ============================================================
-#  [1/5] 检查依赖
+#  [1/5] Check dependencies
 # ============================================================
-echo -e "${YELLOW}[1/5]${NC} 检查依赖..."
+echo -e "${YELLOW}[1/5]${NC} checking dependencies..."
 MISSING_DEP=0
 for cmd in jq curl; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo -e "  ${RED}✗${NC} $cmd 未安装"
+        echo -e "  ${RED}✗${NC} $cmd is not installed"
         MISSING_DEP=1
     else
         echo -e "  ${GREEN}✓${NC} $cmd"
@@ -53,7 +53,7 @@ for cmd in jq curl; do
 done
 if [ "$MISSING_DEP" -eq 1 ]; then
     echo ""
-    echo "  请先安装缺失的依赖："
+    echo "  Install the missing dependencies first:"
     if $IS_MACOS; then
         echo "  macOS:         brew install jq curl"
     else
@@ -64,26 +64,26 @@ if [ "$MISSING_DEP" -eq 1 ]; then
 fi
 
 if ! command -v dsh &>/dev/null; then
-    echo -e "  ${YELLOW}⚠${NC} 未检测到 dsh CLI（继续安装，请稍后再装 dsh）"
+    echo -e "  ${YELLOW}⚠${NC} dsh CLI not detected (continuing; install dsh later)"
 fi
 
 # ============================================================
-#  [2/5] 交互式配置
+#  [2/5] Interactive configuration
 # ============================================================
-echo -e "${YELLOW}[2/5]${NC} 配置推送渠道..."
+echo -e "${YELLOW}[2/5]${NC} configuring push channels..."
 echo ""
 
-# Channel 定义：name|display_name|default_delay|credential_fields
+# Channel definitions: name|display_name|default_delay|credential_fields
 CHANNEL_DEFS=(
-    "macos|macOS 系统通知|3|"
+    "macos|macOS system notification|3|"
     "bark|Bark (iOS/macOS/Android)|15|key:Bark Key;server:Bark Server [https://api.day.app]"
     "telegram|Telegram Bot|5|bot_token:Bot Token;chat_id:Chat ID"
     "pushover|Pushover|15|app_token:App Token;user_key:User Key"
-    "ntfy|ntfy (开源推送)|15|topic:Topic;server:Server [https://ntfy.sh]"
-    "gotify|Gotify (自建推送)|15|server:Server URL;app_token:App Token"
-    "wechat|企业微信|300|webhook:Webhook URL"
-    "feishu|飞书|300|webhook:Webhook URL"
-    "dingtalk|钉钉|300|webhook:Webhook URL"
+    "ntfy|ntfy (open-source push)|15|topic:Topic;server:Server [https://ntfy.sh]"
+    "gotify|Gotify (self-hosted push)|15|server:Server URL;app_token:App Token"
+    "wechat|WeCom|300|webhook:Webhook URL"
+    "feishu|Feishu|300|webhook:Webhook URL"
+    "dingtalk|DingTalk|300|webhook:Webhook URL"
     "slack|Slack|300|webhook:Webhook URL"
     "discord|Discord|300|webhook:Webhook URL"
 )
@@ -101,20 +101,20 @@ _read_json() {
     echo "$default"
 }
 
-# 复用已有配置（Claude / Codex / Reasonix），避免重复填写凭证
+# Reuse an existing configuration (Claude / Codex / Reasonix) so credentials are not entered twice
 if [ ! -f "$CONFIG_FILE" ]; then
     for existing in \
         "${HOME}/.claude/hooks/notify.json" \
         "${CODEX_HOME:-${HOME}/.codex}/cc-notify-hooks/notify.json" \
         "${REASONIX_HOME:-${HOME}/.reasonix}/cc-notify-hooks/notify.json"; do
         if [ -f "$existing" ]; then
-            echo -e "  ${CYAN}检测到已有配置，可直接复用${NC}"
-            printf "  复用 $existing ? [Y/n]: "
+            echo -e "  ${CYAN}Existing configuration detected; it can be reused${NC}"
+            printf "  Reuse $existing? [Y/n]: "
             read -r reuse
             if [[ ! "$reuse" =~ ^[Nn] ]]; then
                 mkdir -p "$INSTALL_DIR"
                 cp "$existing" "$CONFIG_FILE"
-                echo -e "  ${GREEN}✓${NC} 已复用配置"
+                echo -e "  ${GREEN}✓${NC} reused the configuration"
                 echo ""
             fi
             break
@@ -123,12 +123,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ -f "$CONFIG_FILE" ]; then
-    echo -e "  ${CYAN}检测到已有配置 ($CONFIG_FILE)${NC}"
+    echo -e "  ${CYAN}Existing configuration detected ($CONFIG_FILE)${NC}"
     echo ""
 fi
 
-# 列出 channel 让用户选择
-echo "  可用的通知渠道："
+# List the channels for the user to choose from
+echo "  Available notification channels:"
 echo ""
 idx=1
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -142,13 +142,13 @@ for def in "${CHANNEL_DEFS[@]}"; do
     if [ "$name" = "macos" ] && $IS_MACOS && [ "$current_enabled" = "false" ] && [ ! -f "$CONFIG_FILE" ]; then
         mark="${GREEN}✓${NC}"
     fi
-    printf "  %s [%b] %2d. %-30s (默认延迟 %ss)\n" "" "$mark" "$idx" "$display" "$delay"
+    printf "  %s [%b] %2d. %-30s (default delay %ss)\n" "" "$mark" "$idx" "$display" "$delay"
     idx=$((idx + 1))
 done
 echo ""
-echo -e "  ${CYAN}输入编号启用渠道（逗号分隔，如 1,2,7），直接回车保持当前配置${NC}"
+echo -e "  ${CYAN}Enter the numbers of the channels to enable (comma-separated, e.g. 1,2,7); press Enter to keep the current configuration${NC}"
 
-printf "  选择: "
+printf "  Choose: "
 read -r selection
 
 declare -A ENABLED_CHANNELS=()
@@ -174,7 +174,7 @@ fi
 
 echo ""
 
-# 收集凭证
+# Collect credentials
 declare -A CHANNEL_CONFIGS=()
 
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -187,7 +187,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
         continue
     fi
 
-    echo -e "  ${CYAN}配置 ${display}:${NC}"
+    echo -e "  ${CYAN}Configuring ${display}:${NC}"
 
     IFS=';' read -ra FIELD_DEFS <<< "$fields"
     for fdef in "${FIELD_DEFS[@]}"; do
@@ -207,7 +207,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
                 hint="$current"
             fi
         else
-            hint="必填"
+            hint="required"
         fi
 
         printf "    %s [%s]: " "$fdesc" "$hint"
@@ -217,7 +217,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
     echo ""
 done
 
-# 构建配置 JSON
+# Build the configuration JSON
 CONFIG_JSON='{"channels":{},"rate_limit":10}'
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -262,20 +262,20 @@ done
 
 mkdir -p "$INSTALL_DIR"
 echo "$CONFIG_JSON" | jq '.' > "$CONFIG_FILE"
-echo -e "  ${GREEN}✓${NC} 配置已写入 $CONFIG_FILE"
+echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 
 # ============================================================
-#  [3/5] 软链插件包（~/.node_modules 解析路径，与 dsh-feishu 相同）
+#  [3/5] Symlink the plugin package (~/.node_modules resolution path, same as dsh-feishu)
 # ============================================================
-echo -e "${YELLOW}[3/5]${NC} 链接插件包..."
+echo -e "${YELLOW}[3/5]${NC} linking the plugin package..."
 mkdir -p "$NODE_MODULES_DIR"
 ln -sfn "$PLUGIN_PKG_DIR" "$PLUGIN_LINK"
 echo -e "  ${GREEN}✓${NC} $PLUGIN_LINK -> $PLUGIN_PKG_DIR"
 
 # ============================================================
-#  [4/5] 写入 ~/.dsh/cordis.patch.yml
+#  [4/5] Write ~/.dsh/cordis.patch.yml
 # ============================================================
-echo -e "${YELLOW}[4/5]${NC} 写入 dsh 插件配置..."
+echo -e "${YELLOW}[4/5]${NC} writing the dsh plugin configuration..."
 
 PATCH_BLOCK="
 - insert:
@@ -286,37 +286,37 @@ PATCH_BLOCK="
         stateDir: ${STATE_DIR}"
 
 if [ -f "$PATCH_FILE" ] && grep -q "id: ${PLUGIN_ENTRY_ID}$" "$PATCH_FILE"; then
-    echo -e "  ${YELLOW}⚠${NC} $PATCH_FILE 已存在 ${PLUGIN_ENTRY_ID} 条目，跳过写入"
+    echo -e "  ${YELLOW}⚠${NC} $PATCH_FILE already has an ${PLUGIN_ENTRY_ID} entry; skipping the write"
 else
     if [ -f "$PATCH_FILE" ] && [ -s "$PATCH_FILE" ]; then
         BACKUP="${PATCH_FILE}.backup.$(date +%Y%m%d%H%M%S)"
         cp "$PATCH_FILE" "$BACKUP"
-        echo "  已备份原配置到: $BACKUP"
+        echo "  backed up the original configuration to: $BACKUP"
         printf '%s\n' "$PATCH_BLOCK" >> "$PATCH_FILE"
     else
         mkdir -p "$DSH_HOME_DIR"
         printf '%s\n' "$PATCH_BLOCK" > "$PATCH_FILE"
     fi
-    echo -e "  ${GREEN}✓${NC} 已写入 ${PLUGIN_ENTRY_ID} 条目到 $PATCH_FILE"
+    echo -e "  ${GREEN}✓${NC} wrote the ${PLUGIN_ENTRY_ID} entry to $PATCH_FILE"
 fi
 mkdir -p "$STATE_DIR"
 
 # ============================================================
-#  [5/5] 验证（dsh 可用时打印组合树中的条目）
+#  [5/5] Verification (prints the entry from the composition tree when dsh is available)
 # ============================================================
-echo -e "${YELLOW}[5/5]${NC} 验证..."
+echo -e "${YELLOW}[5/5]${NC} verifying..."
 if command -v dsh &>/dev/null; then
     if dsh web --dump-config 2>/dev/null | grep -q "id: ${PLUGIN_ENTRY_ID}"; then
-        echo -e "  ${GREEN}✓${NC} dsh 组合树中已包含 ${PLUGIN_ENTRY_ID}"
+        echo -e "  ${GREEN}✓${NC} the dsh composition tree already contains ${PLUGIN_ENTRY_ID}"
     else
-        echo -e "  ${YELLOW}⚠${NC} dsh 组合树中未找到 ${PLUGIN_ENTRY_ID}（运行中的 dsh 会热加载该文件，或下次启动生效）"
+        echo -e "  ${YELLOW}⚠${NC} the dsh composition tree does not contain ${PLUGIN_ENTRY_ID} yet (a running dsh hot-loads this file, otherwise it applies on the next start)"
     fi
 else
-    echo -e "  ${YELLOW}⚠${NC} 未检测到 dsh CLI，跳过验证（安装 dsh 后重新运行本脚本）"
+    echo -e "  ${YELLOW}⚠${NC} dsh CLI not detected; skipping verification (re-run this script after installing dsh)"
 fi
 
 # ============================================================
-#  总结输出
+#  Summary
 # ============================================================
 echo ""
 ENABLED_COUNT=0
@@ -325,32 +325,32 @@ for name in "${!ENABLED_CHANNELS[@]}"; do
 done
 
 if [ "$ENABLED_COUNT" -eq 0 ]; then
-    echo -e "  ${YELLOW}⚠${NC} 未启用任何推送渠道"
+    echo -e "  ${YELLOW}⚠${NC} no push channel is enabled"
 else
-    echo "  已启用的渠道："
+    echo "  Enabled channels:"
     for def in "${CHANNEL_DEFS[@]}"; do
         IFS='|' read -r name display delay _ <<< "$def"
         if [ "${ENABLED_CHANNELS[$name]:-}" = "1" ]; then
-            echo -e "  ${GREEN}✓${NC} ${display} (延迟 ${delay}s)"
+            echo -e "  ${GREEN}✓${NC} ${display} (delay ${delay}s)"
         fi
     done
 fi
 
 echo ""
 echo "========================================="
-echo -e "  ${GREEN}✅ 安装完成！${NC}"
+echo -e "  ${GREEN}✅ Installation complete!${NC}"
 echo ""
-echo "  下一步:"
-echo "  1. 测试: bash $REPO_ROOT/test_notify.sh"
-echo "  2. dsh 热加载 $PATCH_FILE，正在运行的会话即刻生效"
-echo "  3. 调试: tail -f /tmp/claude-hooks-debug.log"
+echo "  Next steps:"
+echo "  1. Test: bash $REPO_ROOT/test_notify.sh"
+echo "  2. dsh hot-loads $PATCH_FILE; running sessions take effect immediately"
+echo "  3. Debug: tail -f /tmp/claude-hooks-debug.log"
 echo ""
-echo "  事件映射（dsh 拦截点 → 通知）:"
-echo "    approval/request    → 等待审批时推送（需要确认 🔔）"
-echo "    agent/turn-stopping → 一轮结束推送（任务完成 ✅）"
-echo "    agent/pre-step      → 用户响应后取消排队推送"
-echo "    tools/pre-execute   → ask_user_question 推送（需要回复 🔔）"
+echo "  Event mapping (dsh interception point → notification):"
+echo "    approval/request    → push while waiting for approval (approval needed 🔔)"
+echo "    agent/turn-stopping → push when a turn ends (task complete ✅)"
+echo "    agent/pre-step      → cancel queued pushes once the user responds"
+echo "    tools/pre-execute   → push for ask_user_question (reply needed 🔔)"
 echo ""
-echo "  卸载: 删除 $PATCH_FILE 中的 cc-notify-hooks 条目并移除 $PLUGIN_LINK"
-echo "  修改配置: 编辑 $CONFIG_FILE"
+echo "  Uninstall: delete the cc-notify-hooks entry from $PATCH_FILE and remove $PLUGIN_LINK"
+echo "  Change the configuration: edit $CONFIG_FILE"
 echo "========================================="

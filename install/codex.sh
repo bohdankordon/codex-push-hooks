@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks 独立安装脚本（Codex CLI 分支）
-# 部署 scripts/ 到 ~/.codex/cc-notify-hooks/，写入 ~/.codex/hooks.json
+# cc-notify-hooks standalone install script (Codex CLI branch)
+# Deploys scripts/ to ~/.codex/cc-notify-hooks/ and writes ~/.codex/hooks.json
 #
-# 既可被 install.sh 路由调用，也可独立运行：
+# Can be called by the install.sh router or run on its own:
 #   bash install/codex.sh
 
 set -euo pipefail
@@ -12,7 +12,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
 INSTALL_DIR="${CODEX_HOME}/cc-notify-hooks"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-STATE_DIR="${HOME}/.claude/hooks/state"  # 复用 Claude 的 state 目录，方便两边共存
+STATE_DIR="${HOME}/.claude/hooks/state"  # reuse Claude's state directory so both can coexist
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
 HOOKS_FILE="${CODEX_HOME}/hooks.json"
 CODEX_CONFIG="${CODEX_HOME}/config.toml"
@@ -28,19 +28,19 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - Codex CLI 独立安装"
-echo "  平台: $(uname -s) $(uname -m)"
+echo "  cc-notify-hooks - Codex CLI standalone install"
+echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
 
 # ============================================================
-#  [1/4] 检查依赖
+#  [1/4] Check dependencies
 # ============================================================
-echo -e "${YELLOW}[1/4]${NC} 检查依赖..."
+echo -e "${YELLOW}[1/4]${NC} checking dependencies..."
 MISSING_DEP=0
 for cmd in jq curl; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo -e "  ${RED}✗${NC} $cmd 未安装"
+        echo -e "  ${RED}✗${NC} $cmd is not installed"
         MISSING_DEP=1
     else
         echo -e "  ${GREEN}✓${NC} $cmd"
@@ -48,7 +48,7 @@ for cmd in jq curl; do
 done
 if [ "$MISSING_DEP" -eq 1 ]; then
     echo ""
-    echo "  请先安装缺失的依赖："
+    echo "  Install the missing dependencies first:"
     if $IS_MACOS; then
         echo "  macOS:         brew install jq curl"
     else
@@ -58,28 +58,28 @@ if [ "$MISSING_DEP" -eq 1 ]; then
     exit 1
 fi
 
-# Codex 安装提示（不强制，用户可以先装 hooks）
+# Codex install hint (not enforced; hooks can be installed first)
 if ! command -v codex &>/dev/null && [ ! -x "/Applications/Codex.app/Contents/Resources/codex" ]; then
-    echo -e "  ${YELLOW}⚠${NC} 未检测到 Codex CLI（继续安装，请稍后再装 Codex）"
+    echo -e "  ${YELLOW}⚠${NC} Codex CLI not detected (continuing; install Codex later)"
 fi
 
 # ============================================================
-#  [2/4] 交互式配置
+#  [2/4] Interactive configuration
 # ============================================================
-echo -e "${YELLOW}[2/4]${NC} 配置推送渠道..."
+echo -e "${YELLOW}[2/4]${NC} configuring push channels..."
 echo ""
 
-# Channel 定义：name|display_name|default_delay|credential_fields
+# Channel definitions: name|display_name|default_delay|credential_fields
 CHANNEL_DEFS=(
-    "macos|macOS 系统通知|3|"
+    "macos|macOS system notification|3|"
     "bark|Bark (iOS/macOS/Android)|15|key:Bark Key;server:Bark Server [https://api.day.app]"
     "telegram|Telegram Bot|5|bot_token:Bot Token;chat_id:Chat ID"
     "pushover|Pushover|15|app_token:App Token;user_key:User Key"
-    "ntfy|ntfy (开源推送)|15|topic:Topic;server:Server [https://ntfy.sh]"
-    "gotify|Gotify (自建推送)|15|server:Server URL;app_token:App Token"
-    "wechat|企业微信|300|webhook:Webhook URL"
-    "feishu|飞书|300|webhook:Webhook URL"
-    "dingtalk|钉钉|300|webhook:Webhook URL"
+    "ntfy|ntfy (open-source push)|15|topic:Topic;server:Server [https://ntfy.sh]"
+    "gotify|Gotify (self-hosted push)|15|server:Server URL;app_token:App Token"
+    "wechat|WeCom|300|webhook:Webhook URL"
+    "feishu|Feishu|300|webhook:Webhook URL"
+    "dingtalk|DingTalk|300|webhook:Webhook URL"
     "slack|Slack|300|webhook:Webhook URL"
     "discord|Discord|300|webhook:Webhook URL"
 )
@@ -97,27 +97,27 @@ _read_json() {
     echo "$default"
 }
 
-# 复用 Claude 配置（如果已有）
+# Reuse the Claude configuration when one already exists
 CLAUDE_CONFIG="${HOME}/.claude/hooks/notify.json"
 if [ ! -f "$CONFIG_FILE" ] && [ -f "$CLAUDE_CONFIG" ]; then
-    echo -e "  ${CYAN}检测到 Claude Code 配置，可直接复用${NC}"
-    printf "  复用 $CLAUDE_CONFIG ? [Y/n]: "
+    echo -e "  ${CYAN}Detected a Claude Code configuration that can be reused${NC}"
+    printf "  Reuse $CLAUDE_CONFIG? [Y/n]: "
     read -r reuse
     if [[ ! "$reuse" =~ ^[Nn] ]]; then
         mkdir -p "$INSTALL_DIR"
         cp "$CLAUDE_CONFIG" "$CONFIG_FILE"
-        echo -e "  ${GREEN}✓${NC} 已复用 Claude 配置"
+        echo -e "  ${GREEN}✓${NC} reused the Claude configuration"
         echo ""
     fi
 fi
 
 if [ -f "$CONFIG_FILE" ]; then
-    echo -e "  ${CYAN}检测到已有配置 ($CONFIG_FILE)${NC}"
+    echo -e "  ${CYAN}Existing configuration detected ($CONFIG_FILE)${NC}"
     echo ""
 fi
 
-# 列出 channel 让用户选择
-echo "  可用的通知渠道："
+# List the channels for the user to choose from
+echo "  Available notification channels:"
 echo ""
 idx=1
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -131,13 +131,13 @@ for def in "${CHANNEL_DEFS[@]}"; do
     if [ "$name" = "macos" ] && $IS_MACOS && [ "$current_enabled" = "false" ] && [ ! -f "$CONFIG_FILE" ]; then
         mark="${GREEN}✓${NC}"
     fi
-    printf "  %s [%b] %2d. %-30s (默认延迟 %ss)\n" "" "$mark" "$idx" "$display" "$delay"
+    printf "  %s [%b] %2d. %-30s (default delay %ss)\n" "" "$mark" "$idx" "$display" "$delay"
     idx=$((idx + 1))
 done
 echo ""
-echo -e "  ${CYAN}输入编号启用渠道（逗号分隔，如 1,2,7），直接回车保持当前配置${NC}"
+echo -e "  ${CYAN}Enter the numbers of the channels to enable (comma-separated, e.g. 1,2,7); press Enter to keep the current configuration${NC}"
 
-printf "  选择: "
+printf "  Choose: "
 read -r selection
 
 declare -A ENABLED_CHANNELS=()
@@ -163,7 +163,7 @@ fi
 
 echo ""
 
-# 收集凭证
+# Collect credentials
 declare -A CHANNEL_CONFIGS=()
 
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -176,7 +176,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
         continue
     fi
 
-    echo -e "  ${CYAN}配置 ${display}:${NC}"
+    echo -e "  ${CYAN}Configuring ${display}:${NC}"
 
     IFS=';' read -ra FIELD_DEFS <<< "$fields"
     for fdef in "${FIELD_DEFS[@]}"; do
@@ -196,7 +196,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
                 hint="$current"
             fi
         else
-            hint="必填"
+            hint="required"
         fi
 
         printf "    %s [%s]: " "$fdesc" "$hint"
@@ -206,7 +206,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
     echo ""
 done
 
-# 构建配置 JSON
+# Build the configuration JSON
 CONFIG_JSON='{"channels":{},"rate_limit":10}'
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -251,12 +251,12 @@ done
 
 mkdir -p "$INSTALL_DIR"
 echo "$CONFIG_JSON" | jq '.' > "$CONFIG_FILE"
-echo -e "  ${GREEN}✓${NC} 配置已写入 $CONFIG_FILE"
+echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 
 # ============================================================
-#  [3/4] 安装脚本
+#  [3/4] Install the scripts
 # ============================================================
-echo -e "${YELLOW}[3/4]${NC} 安装脚本..."
+echo -e "${YELLOW}[3/4]${NC} installing scripts..."
 mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels" "$SCRIPTS_DIR/lib"
 cp "$REPO_ROOT/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
 cp "$REPO_ROOT/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
@@ -268,19 +268,19 @@ chmod +x \
     "$SCRIPTS_DIR/clear_pending.sh" \
     "$SCRIPTS_DIR/pre_tool_use.sh" \
     "$SCRIPTS_DIR/channels/"*.sh
-echo -e "  ${GREEN}✓${NC} 脚本已复制到 $SCRIPTS_DIR"
+echo -e "  ${GREEN}✓${NC} scripts copied to $SCRIPTS_DIR"
 
-# 让 notify.sh 能找到 Codex 模式的配置
-# notify.sh 已支持 ~/.claude/hooks/notify.json，这里再放一份在 Codex 路径
-# 通过 CC_NOTIFY_CONFIG 让脚本找到 Codex 配置（脚本本身已支持环境变量覆盖）
-# 实际方案：在 hooks.json 命令里通过 sh -c 设置环境变量后调用脚本
+# Help notify.sh find the Codex-mode configuration
+# notify.sh already supports ~/.claude/hooks/notify.json; this keeps another copy under the Codex path
+# CC_NOTIFY_CONFIG lets the script find the Codex configuration (the script already supports an environment override)
+# Actual approach: set the environment variable through sh -c inside the hooks.json command and then call the script
 
 # ============================================================
-#  [4/4] 写入 ~/.codex/hooks.json
+#  [4/4] Write ~/.codex/hooks.json
 # ============================================================
-echo -e "${YELLOW}[4/4]${NC} 写入 hooks.json..."
+echo -e "${YELLOW}[4/4]${NC} writing hooks.json..."
 
-# 用绝对路径调用脚本；notify.sh 自动从 ~/.codex/cc-notify-hooks/notify.json 读取配置
+# Call the scripts with absolute paths; notify.sh reads its configuration from ~/.codex/cc-notify-hooks/notify.json
 HOOKS_JSON=$(jq -n --arg s "$SCRIPTS_DIR" '
 {
   hooks: {
@@ -311,20 +311,20 @@ mkdir -p "$CODEX_HOME"
 if [ -f "$HOOKS_FILE" ]; then
     BACKUP="${HOOKS_FILE}.backup.$(date +%Y%m%d%H%M%S)"
     cp "$HOOKS_FILE" "$BACKUP"
-    echo "  已备份原 hooks.json 到: $BACKUP"
+    echo "  backed up the original hooks.json to: $BACKUP"
 
-    # 合并：用本插件的 hooks 覆盖同名事件，保留其他事件
+    # Merge: this plugin's hooks replace events with the same name and keep all other events
     jq -s '.[0] * .[1]' "$HOOKS_FILE" <(echo "$HOOKS_JSON") \
         > "${HOOKS_FILE}.tmp" \
         && mv "${HOOKS_FILE}.tmp" "$HOOKS_FILE"
-    echo -e "  ${GREEN}✓${NC} hooks 已合并到 $HOOKS_FILE"
+    echo -e "  ${GREEN}✓${NC} hooks merged into $HOOKS_FILE"
 else
     echo "$HOOKS_JSON" | jq '.' > "$HOOKS_FILE"
-    echo -e "  ${GREEN}✓${NC} 已创建 $HOOKS_FILE"
+    echo -e "  ${GREEN}✓${NC} $HOOKS_FILE created"
 fi
 
 # ============================================================
-#  检查 hooks 是否启用（兼容 codex_hooks 与 hooks 两种命名）
+#  Check whether hooks are enabled (accepts both the codex_hooks and hooks names)
 # ============================================================
 HOOKS_ENABLED=false
 if [ -f "$CODEX_CONFIG" ]; then
@@ -334,7 +334,7 @@ if [ -f "$CODEX_CONFIG" ]; then
 fi
 
 # ============================================================
-#  总结输出
+#  Summary
 # ============================================================
 echo ""
 ENABLED_COUNT=0
@@ -343,41 +343,41 @@ for name in "${!ENABLED_CHANNELS[@]}"; do
 done
 
 if [ "$ENABLED_COUNT" -eq 0 ]; then
-    echo -e "  ${YELLOW}⚠${NC} 未启用任何推送渠道"
+    echo -e "  ${YELLOW}⚠${NC} no push channel is enabled"
 else
-    echo "  已启用的渠道："
+    echo "  Enabled channels:"
     for def in "${CHANNEL_DEFS[@]}"; do
         IFS='|' read -r name display delay _ <<< "$def"
         if [ "${ENABLED_CHANNELS[$name]:-}" = "1" ]; then
-            echo -e "  ${GREEN}✓${NC} ${display} (延迟 ${delay}s)"
+            echo -e "  ${GREEN}✓${NC} ${display} (delay ${delay}s)"
         fi
     done
 fi
 
 echo ""
 echo "========================================="
-echo -e "  ${GREEN}✅ 安装完成！${NC}"
+echo -e "  ${GREEN}✅ Installation complete!${NC}"
 echo ""
 
 if ! $HOOKS_ENABLED; then
-    echo -e "  ${RED}${BOLD}⚠ 重要：需要手动启用 Codex hooks${NC}"
+    echo -e "  ${RED}${BOLD}⚠ Important: Codex hooks must be enabled manually${NC}"
     echo ""
-    echo "  在 $CODEX_CONFIG 添加以下内容："
+    echo "  Add the following to $CODEX_CONFIG:"
     echo ""
     echo -e "    ${CYAN}[features]${NC}"
     echo -e "    ${CYAN}codex_hooks = true${NC}"
     echo ""
-    echo "  保存后下次启动 Codex 即生效。"
+    echo "  Save the file; it takes effect the next time Codex starts."
     echo ""
 else
-    echo -e "  ${GREEN}✓${NC} codex_hooks 已在 $CODEX_CONFIG 启用"
+    echo -e "  ${GREEN}✓${NC} codex_hooks is already enabled in $CODEX_CONFIG"
     echo ""
 fi
 
-echo "  下一步:"
-echo "  1. 测试: bash $REPO_ROOT/test_notify.sh"
-echo "  2. 重启 Codex 使 hooks 生效"
-echo "  3. 调试: tail -f /tmp/claude-hooks-debug.log"
+echo "  Next steps:"
+echo "  1. Test: bash $REPO_ROOT/test_notify.sh"
+echo "  2. Restart Codex so the hooks take effect"
+echo "  3. Debug: tail -f /tmp/claude-hooks-debug.log"
 echo ""
-echo "  修改配置: 编辑 $CONFIG_FILE"
+echo "  Change the configuration: edit $CONFIG_FILE"
 echo "========================================="

@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks 分级推送通知 - 主调度器
+# cc-notify-hooks tiered push notifications - main dispatcher
 #
-# 机制：
-#   读取 JSON 配置 → 解析事件 → 过滤 → 按 delay 排序 → 后台分级推送
-#   用户交互 → clear_pending.sh 清除 pending → 推送自动取消
+# How it works:
+#   read the JSON config → parse the event → filter → sort by delay → push in tiers in the background
+#   user interaction → clear_pending.sh clears pending → queued pushes are cancelled automatically
 #
-# 用法：由 Claude Code / Codex / Reasonix / dsh 的 hook 自动调用，
-#       通过 stdin 接收 JSON 事件（字段名按 agent 方言兼容）
+# Usage: called automatically by the Claude Code / Codex / Reasonix / dsh hooks;
+#        receives the JSON event on stdin (field names tolerate each agent's dialect)
 
 set -euo pipefail
 
 # ============================================================
-#  脚本路径
+#  Script paths
 # ============================================================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHANNELS_DIR="${SCRIPT_DIR}/channels"
 
 # ============================================================
-#  配置加载（JSON）
+#  Configuration loading (JSON)
 # ============================================================
 CONFIG_FILE=""
 CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
@@ -40,28 +40,28 @@ elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
 fi
 
-# 平台检测
+# Platform detection
 IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
-# 无配置文件时：macOS 用户仍可用系统通知，其他平台直接退出
+# Without a config file: macOS users still get system notifications, other platforms exit
 if [ -z "$CONFIG_FILE" ]; then
     if ! $IS_MACOS; then
         exit 0
     fi
 fi
 
-# 缺少 jq 时安静降级，不能让通知 hook 阻塞 Codex。
+# Degrade quietly when jq is missing; a notification hook must never block Codex.
 command -v jq >/dev/null 2>&1 || exit 0
 
-# 读取全局配置
+# Read the global settings
 RATE_LIMIT=10
 if [ -n "$CONFIG_FILE" ]; then
     RATE_LIMIT=$(jq -r '.rate_limit // 10' "$CONFIG_FILE")
 fi
 [[ "$RATE_LIMIT" =~ ^[0-9]+$ ]] || RATE_LIMIT=10
 
-# 状态目录
+# State directory
 STATE_BASE="${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/hooks}}"
 STATE_DIR="${CC_NOTIFY_STATE_DIR:-${STATE_BASE}/state}"
 if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
@@ -69,13 +69,13 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
 fi
 
 # ============================================================
-#  读取 hook 事件数据
+#  Read the hook event payload
 # ============================================================
 EVENT_DATA=$(cat)
 EVENT_TYPE="${1:-unknown}"
 EVENT_KIND="${2:-$EVENT_TYPE}"
 
-# 调试日志
+# Debug log
 DEBUG_LOG="/tmp/claude-hooks-debug.log"
 if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     {
@@ -85,8 +85,8 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     } >> "$DEBUG_LOG"
 fi
 
-# 提取字段
-# hook_event_name（Claude/Codex/插件导入格式）优先，event（Reasonix 原生格式）兜底
+# Extract fields
+# hook_event_name (Claude/Codex/plugin import format) wins; event (Reasonix native format) is the fallback
 HOOK_EVENT=$(printf '%s' "$EVENT_DATA" | jq -r '.hook_event_name // .event // empty' 2>/dev/null || echo "")
 MESSAGE=$(printf '%s' "$EVENT_DATA" | jq -r '.message // .prompt // empty' 2>/dev/null || echo "")
 CWD=$(printf '%s' "$EVENT_DATA" | jq -r '.cwd // empty' 2>/dev/null || echo "")
@@ -132,26 +132,26 @@ NOW=$(date +%s)
 
 if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     # ============================================================
-    #  过滤规则
+    #  Filtering rules
     # ============================================================
 
-    # 子智能体：跳过
+    # Subagents: skip
     [ -n "$AGENT_ID" ] && exit 0
 
-    # Stop hook 循环保护
+    # Stop hook loop protection
     STOP_ACTIVE=$(printf '%s' "$EVENT_DATA" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
     if [ "$EVENT_TYPE" = "stop" ] && [ "$STOP_ACTIVE" = "true" ]; then
         exit 0
     fi
 
-    # /exit 后的 Stop 事件：跳过
+    # Stop events after /exit: skip
     if [ "$EVENT_TYPE" = "stop" ] && [ -f "${STATE_DIR}/exiting_${SESSION_KEY}" ]; then
         rm -f "${STATE_DIR}/exiting_${SESSION_KEY}"
         exit 0
     fi
 
-    # 防重复：状态按 session + event kind 隔离。
-    # request_user_input 用 tool_use_id 精确去重，不吞掉紧接着出现的新问题。
+    # Deduplication: state is isolated per session + event kind.
+    # request_user_input deduplicates precisely by tool_use_id so a new question right after it is not swallowed.
     RATE_FILE="${STATE_DIR}/last_${SESSION_KEY}_${EVENT_KIND_KEY}"
     if [ -f "$RATE_FILE" ]; then
         LAST=0
@@ -169,9 +169,9 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
 fi
 
 # ============================================================
-#  构造通知内容
+#  Build the notification content
 # ============================================================
-# Agent 识别：显式覆盖 > Reasonix 插件环境 > dsh 插件环境 > 事件/path 特征
+# Agent detection: explicit override > Reasonix plugin env > dsh plugin env > event/path characteristics
 if [ -n "${CC_NOTIFY_AGENT:-}" ]; then
     AGENT_NAME="${CC_NOTIFY_AGENT}"
 elif [ -n "${REASONIX_PLUGIN_ROOT:-}" ]; then
@@ -212,50 +212,50 @@ short_session_id() {
 HOSTNAME_SHORT=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "")
 EVENT_NAME="${HOOK_EVENT:-$EVENT_TYPE}"
 SUMMARY_SOURCE=""
-STATUS_LABEL="需要确认 🔔"
+STATUS_LABEL="Approval needed 🔔"
 STATUS_COLOR="orange"
 
 if [ "$EVENT_KIND" = "user_input" ]; then
-    STATUS_LABEL="需要回复 🔔"
+    STATUS_LABEL="Reply needed 🔔"
     STATUS_COLOR="orange"
-    SUMMARY_SOURCE="${QUESTION_HEADER:-${QUESTION_TEXT:-${AGENT_NAME} 正在等待你的输入}}"
+    SUMMARY_SOURCE="${QUESTION_HEADER:-${QUESTION_TEXT:-${AGENT_NAME} is waiting for your input}}"
 else
     case "$EVENT_TYPE" in
         notification)
             case "$NOTIF_TYPE" in
                 idle_prompt)
-                    STATUS_LABEL="等待响应 ⏳"
+                    STATUS_LABEL="Awaiting response ⏳"
                     STATUS_COLOR="blue"
-                    SUMMARY_SOURCE="${MESSAGE:-等待你的响应}"
+                    SUMMARY_SOURCE="${MESSAGE:-Waiting for your response}"
                     ;;
                 *)
-                    STATUS_LABEL="需要确认 🔔"
+                    STATUS_LABEL="Approval needed 🔔"
                     STATUS_COLOR="orange"
-                    SUMMARY_SOURCE="${MESSAGE:-需要你的操作}"
+                    SUMMARY_SOURCE="${MESSAGE:-Your action is needed}"
                     ;;
             esac
             ;;
         stop)
-            STATUS_LABEL="任务完成 ✅"
+            STATUS_LABEL="Task complete ✅"
             STATUS_COLOR="green"
             SUMMARY_SOURCE=$(first_line "$LAST_ASSISTANT_MESSAGE")
-            SUMMARY_SOURCE="${SUMMARY_SOURCE:-任务已完成}"
+            SUMMARY_SOURCE="${SUMMARY_SOURCE:-Task completed}"
             ;;
         *)
-            STATUS_LABEL="异常 ⚠️"
+            STATUS_LABEL="Error ⚠️"
             STATUS_COLOR="red"
-            SUMMARY_SOURCE="${MESSAGE:-${HOOK_EVENT:-有新事件}}"
+            SUMMARY_SOURCE="${MESSAGE:-${HOOK_EVENT:-New event}}"
             ;;
     esac
 fi
 
 SUMMARY_SHORT=$(truncate_text "$(trim_text "$(first_line "$SUMMARY_SOURCE")")" 120)
-[ -n "$SUMMARY_SHORT" ] || SUMMARY_SHORT="${EVENT_NAME:-有新事件}"
+[ -n "$SUMMARY_SHORT" ] || SUMMARY_SHORT="${EVENT_NAME:-New event}"
 SESSION_SHORT=$(short_session_id "$SESSION_SCOPE")
 
 TITLE="${AGENT_NAME} · ${STATUS_LABEL}"
 if [ "$EVENT_KIND" = "user_input" ]; then
-    BODY="[$PROJECT] $SUMMARY_SHORT · ${QUESTION_COUNT} 个问题 · Session ${SESSION_SHORT:-unknown}"
+    BODY="[$PROJECT] $SUMMARY_SHORT · Questions: ${QUESTION_COUNT} · Session ${SESSION_SHORT:-unknown}"
 else
     BODY="[$PROJECT] $SUMMARY_SHORT"
     [ -n "$TOOL_NAME" ] && BODY="${BODY} · ${TOOL_NAME}"
@@ -308,17 +308,17 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" = "1" ]; then
 fi
 
 # ============================================================
-#  创建 pending 标记
+#  Create the pending marker
 # ============================================================
 rm -f "${STATE_DIR}/pending_${SESSION_KEY}_"* 2>/dev/null || true
 PENDING_FILE="${STATE_DIR}/pending_${SESSION_KEY}_${EVENT_KIND_KEY}_${TOOL_USE_KEY}_${NOW}_$$"
 echo "$EVENT_KIND" > "$PENDING_FILE"
 
 # ============================================================
-#  构建发送队列并执行
+#  Build the send queue and run it
 # ============================================================
 build_queue() {
-    # 无配置文件时，macOS fallback
+    # Without a config file, fall back to macOS
     if [ -z "$CONFIG_FILE" ]; then
         if $IS_MACOS && [ "$EVENT_TYPE" = "notification" ]; then
             echo "macos 3"
@@ -326,16 +326,16 @@ build_queue() {
         return
     fi
 
-    # 遍历所有 channel，输出 "name delay" 行，按 delay 排序
+    # Walk every channel, emit "name delay" lines, and sort by delay
     jq -r '
         .channels // {} | to_entries[] |
         select(.value.enabled == true) |
         "\(.key) \(.value.delay // 15)"
     ' "$CONFIG_FILE" | while read -r ch_name ch_delay; do
-        # 检查 channel 脚本存在
+        # Check that the channel script exists
         [ -f "${CHANNELS_DIR}/${ch_name}.sh" ] || continue
 
-        # 检查 events 过滤
+        # Check the events filter
         local ch_events
         ch_events=$(jq -r ".channels.\"${ch_name}\".events // null" "$CONFIG_FILE")
         if [ "$ch_events" != "null" ]; then
@@ -348,26 +348,26 @@ build_queue() {
 
 QUEUE=$(build_queue)
 
-# 无可用 channel 时退出
+# Exit when no channel is available
 [ -z "$QUEUE" ] && exit 0
 
-# 后台子 shell 执行 pipeline
+# Run the pipeline in a background subshell
 (
     elapsed=0
 
     echo "$QUEUE" | while read -r ch_name ch_delay; do
-        # 计算需要等待的时间
+        # Work out how long to wait
         wait_time=$((ch_delay - elapsed))
         if [ "$wait_time" -gt 0 ]; then
             sleep "$wait_time"
-            # 等待后检查 pending
+            # Check pending after the wait
             if [ ! -f "$PENDING_FILE" ]; then
                 exit 0
             fi
             elapsed=$ch_delay
         fi
 
-        # 加载并调用 channel
+        # Load and call the channel
         source "${CHANNELS_DIR}/${ch_name}.sh"
         ch_config=$(jq -c ".channels.\"${ch_name}\"" "$CONFIG_FILE" 2>/dev/null || echo "{}")
         "send_${ch_name}" "$TITLE" "$BODY" "$ch_config" "$EVENT_JSON"

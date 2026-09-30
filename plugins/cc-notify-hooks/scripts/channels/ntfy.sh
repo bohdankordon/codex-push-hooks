@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ntfy 推送（开源自托管 / ntfy.sh）
+# ntfy push (open source, self-hosted / ntfy.sh)
 
 send_ntfy() {
     local title="$1" body="$2" config="$3"

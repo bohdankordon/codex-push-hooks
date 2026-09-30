@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pushover 推送
+# Pushover push
 
 send_pushover() {
     local title="$1" body="$2" config="$3"

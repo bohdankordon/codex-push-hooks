@@ -13,8 +13,8 @@
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
     "displayName": "cc-notify-hooks",
-    "shortDescription": "分级推送通知，支持 11 个渠道",
-    "longDescription": "为 Codex CLI 提供分级推送通知。短通知（macOS/Bark/Telegram/Pushover/ntfy/Gotify）秒级触达，长通知（企微/飞书/钉钉/Slack/Discord）分钟级兜底。用户响应后自动取消队列中的推送，不重复打扰。",
+    "shortDescription": "Tiered push notifications with 11 channels",
+    "longDescription": "Tiered push notifications for Codex CLI. Short-delay channels (macOS/Bark/Telegram/Pushover/ntfy/Gotify) reach you within seconds, and fallback channels (WeCom/Feishu/DingTalk/Slack/Discord) follow up after a few minutes. Queued pushes are cancelled automatically once you respond, so you are never interrupted twice.",
     "developerName": "MarioZZJ",
     "category": "Productivity",
     "capabilities": ["Read"],
