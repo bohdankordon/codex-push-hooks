@@ -1,50 +1,50 @@
-# cc-notify-hooks v2：多 Channel + 插件化设计
+# cc-notify-hooks v2: multi-channel plugin design
 
-**日期**：2026-03-22
-**状态**：已批准
+**Date**: 2026-03-22
+**Status**: Approved
 
-## 概述
+## Overview
 
-将 cc-notify-hooks 从 3 channel 的 shell 脚本重构为支持 11 个通知渠道的 Claude Code 插件，采用 JSON 配置、模块化 channel 架构、预设延迟可覆盖的分级推送模型。
+Restructure cc-notify-hooks from a 3-channel shell script into a Claude Code plugin with 11 notification channels, a JSON configuration, a modular channel architecture, and a tiered push model whose preset delays can be overridden.
 
-## 决策记录
+## Decision record
 
-| 决策项 | 选择 | 理由 |
-|--------|------|------|
-| 分级模型 | 预设默认 + 可覆盖 delay | 零配置可用，进阶用户可调 |
-| 配置格式 | JSON | 结构化且 jq 已是必需依赖，零新增依赖 |
-| 插件策略 | 直接按插件结构开发 | 用 `claude --plugin-dir` 测试，一步到位 |
-| 架构模式 | Channel 模块化（每 channel 一个文件） | 职责单一，加 channel 不动主逻辑 |
-| Channel 范围 | v1 全部 11 个 | 每个 channel 本质就是一个 curl，架构设计好后加就是填模板 |
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Tiering model | Presets plus overridable delay | Usable with zero configuration, tunable for advanced users |
+| Configuration format | JSON | Structured, and jq is already a required dependency so nothing new is needed |
+| Plugin strategy | Develop directly in the plugin layout | Test with `claude --plugin-dir` and get it right in one step |
+| Architecture | Modular channels (one file per channel) | Single responsibility: adding a channel never touches the main logic |
+| Channel scope | All 11 channels from v1 | Each channel is essentially one curl call; once the architecture is in place, adding one is just filling in a template |
 
-## 支持的 Channel
+## Supported channels
 
-| Channel | 类型 | 默认 delay | 默认 events | 凭证字段 |
-|---------|------|-----------|-------------|---------|
-| macos | 本地 osascript | 3s | notification | 无（零配置） |
-| bark | 推送服务 | 15s | notification, stop | key, server |
+| Channel | Type | Default delay | Default events | Credential fields |
+|---------|------|---------------|----------------|-------------------|
+| macos | Local osascript | 3s | notification | none (zero configuration) |
+| bark | Push service | 15s | notification, stop | key, server |
 | telegram | Bot API | 5s | notification, stop | bot_token, chat_id |
-| pushover | 推送服务 | 15s | notification, stop | app_token, user_key |
-| ntfy | 推送服务 | 15s | notification, stop | topic, server |
-| gotify | 自建推送 | 15s | notification, stop | server, app_token |
+| pushover | Push service | 15s | notification, stop | app_token, user_key |
+| ntfy | Push service | 15s | notification, stop | topic, server |
+| gotify | Self-hosted push | 15s | notification, stop | server, app_token |
 | wechat | Webhook | 300s | notification, stop | webhook |
 | feishu | Webhook | 300s | notification, stop | webhook |
 | dingtalk | Webhook | 300s | notification, stop | webhook |
 | slack | Webhook | 300s | notification, stop | webhook |
 | discord | Webhook | 300s | notification, stop | webhook |
 
-## 插件目录结构
+## Plugin directory structure
 
 ```
 cc-notify-hooks/
 ├── .claude-plugin/
-│   └── plugin.json              # 插件清单
+│   └── plugin.json              # plugin manifest
 ├── hooks/
-│   └── hooks.json               # hook 事件定义
+│   └── hooks.json               # hook event definitions
 ├── scripts/
-│   ├── notify.sh                # 主调度器
-│   ├── clear_pending.sh         # 用户交互清除 pending
-│   └── channels/                # 每个 channel 一个文件
+│   ├── notify.sh                # main dispatcher
+│   ├── clear_pending.sh         # clear pending markers on user interaction
+│   └── channels/                # one file per channel
 │       ├── macos.sh
 │       ├── bark.sh
 │       ├── telegram.sh
@@ -57,16 +57,16 @@ cc-notify-hooks/
 │       ├── ntfy.sh
 │       └── gotify.sh
 ├── config/
-│   └── notify.example.json      # 配置模板
-├── install.sh                   # 非插件用户的安装入口
-├── test_notify.sh               # 连通性测试
+│   └── notify.example.json      # configuration template
+├── install.sh                   # install entry point for non-plugin users
+├── test_notify.sh               # connectivity tests
 ├── README.md
 └── LICENSE
 ```
 
-## JSON 配置结构
+## JSON configuration structure
 
-位置优先级：`${CLAUDE_PLUGIN_DATA}/notify.json` → `~/.claude/hooks/notify.json` → 仅 macOS 通知
+Location precedence: `${CLAUDE_PLUGIN_DATA}/notify.json` → `~/.claude/hooks/notify.json` → macOS notifications only
 
 ```json
 {
@@ -137,16 +137,16 @@ cc-notify-hooks/
 }
 ```
 
-### 字段说明
+### Field reference
 
-- **enabled**：显式开关，`false` 或缺失则跳过
-- **delay**：秒，每个 channel 可独立调整（预设 + 可覆盖）
-- **events**：可选，默认 `["notification", "stop"]`，macOS 默认只 `["notification"]`
-- **channel 专属字段**：每个 channel 只有自己需要的凭证，无冗余
+- **enabled**: explicit switch; a channel is skipped when it is `false` or missing
+- **delay**: seconds; adjustable per channel (preset plus override)
+- **events**: optional, defaults to `["notification", "stop"]`; macOS defaults to `["notification"]` only
+- **channel-specific fields**: each channel carries only the credentials it needs, with no redundancy
 
-## Channel 脚本接口
+## Channel script interface
 
-统一函数签名：
+Uniform function signature:
 
 ```bash
 # send_<channel_name> <title> <body> <channel_config_json>
@@ -162,42 +162,42 @@ send_bark() {
 }
 ```
 
-**约定**：
-- 函数名 `send_<name>` 与配置中的 key 一致
-- 参数：title、body、该 channel 的 JSON config 对象
-- 不做 pending 检查、不做 sleep（纯发送）
-- 失败不致命（`|| true`）
+**Conventions:**
+- The function name `send_<name>` matches the key in the configuration
+- Arguments: title, body, and the channel's JSON config object
+- No pending checks and no sleeps (pure sending)
+- Failures are non-fatal (`|| true`)
 
-## Pipeline 编排
+## Pipeline orchestration
 
 ```
-notify.sh 主流程：
-1. 读取配置 JSON
-2. stdin 读取事件 JSON → 解析字段
-3. 过滤规则：子智能体 / 循环保护 / /exit / rate limit
-4. 构造 title + body
-5. 创建 pending 文件
-6. 构建发送队列：
-   enabled=true + events 匹配 → 按 delay 升序排序
+notify.sh main flow:
+1. Read the configuration JSON
+2. Read the event JSON from stdin → parse the fields
+3. Filtering rules: subagents / loop protection / /exit / rate limit
+4. Build title + body
+5. Create the pending file
+6. Build the send queue:
+   enabled=true + events match → sort by ascending delay
    → [(macos,3), (telegram,5), (bark,15), (ntfy,15), (wechat,300), ...]
-7. 后台子 shell：
+7. Background subshell:
    elapsed=0
    for (channel, delay) in sorted_queue:
        wait = delay - elapsed
        sleep $wait
-       if pending 不存在: exit
+       if pending does not exist: exit
        source channels/<channel>.sh
        send_<channel> "$title" "$body" "$channel_config"
        elapsed = delay
    rm pending
 ```
 
-**关键设计**：
-- 同 delay 的 channel 在同一轮依次发送，不额外 sleep
-- pending 检查在每个 delay 节点做一次（同 delay 的一批要么全发要么全跳）
-- 整个 pipeline 是一个后台子 shell（`(...) &`），不阻塞 hook 返回
+**Key design points:**
+- Channels that share a delay are sent one after another in the same round, with no extra sleep
+- The pending check runs once per delay step (a batch with the same delay is either sent entirely or skipped entirely)
+- The whole pipeline is a background subshell (`(...) &`) that never blocks the hook from returning
 
-## Hook 配置（hooks/hooks.json）
+## Hook configuration (hooks/hooks.json)
 
 ```json
 {
@@ -246,45 +246,45 @@ notify.sh 主流程：
 }
 ```
 
-## install.sh 改造
+## install.sh changes
 
 ```
-[1/4] 检查依赖（jq, curl）
-[2/4] 选择启用的 channel
-      → 列出所有 channel，用户输入编号多选
-      → 对每个启用的 channel 提示输入凭证
-      → 已有配置时显示当前值作为默认
-[3/4] 安装脚本
-      → 复制 scripts/（含 channels/）到 ~/.claude/hooks/
-      → 生成 ~/.claude/hooks/notify.json
-[4/4] 配置 hooks
-      → hooks.json 中 ${CLAUDE_PLUGIN_ROOT} 替换为 ~/.claude/hooks
-      → 合并到 ~/.claude/settings.json
+[1/4] Check dependencies (jq, curl)
+[2/4] Choose the channels to enable
+      → list every channel and let the user multi-select by number
+      → prompt for credentials for each enabled channel
+      → show current values as defaults when a configuration already exists
+[3/4] Install the scripts
+      → copy scripts/ (including channels/) to ~/.claude/hooks/
+      → generate ~/.claude/hooks/notify.json
+[4/4] Configure hooks
+      → replace ${CLAUDE_PLUGIN_ROOT} in hooks.json with ~/.claude/hooks
+      → merge into ~/.claude/settings.json
 ```
 
-## test_notify.sh 改造
+## test_notify.sh changes
 
 ```bash
-bash test_notify.sh              # 测试所有已启用 channel
-bash test_notify.sh bark         # 测试单个 channel
-bash test_notify.sh hook         # 模拟完整 pipeline
-bash test_notify.sh list         # 列出已启用 channel 及 delay
+bash test_notify.sh              # test every enabled channel
+bash test_notify.sh bark         # test a single channel
+bash test_notify.sh hook         # simulate the full pipeline
+bash test_notify.sh list         # list enabled channels and delays
 ```
 
-## 过滤规则（不变）
+## Filtering rules (unchanged)
 
-- 子智能体：agent_id 非空 → 跳过
-- Stop 循环保护：stop_hook_active=true → 跳过
-- /exit 静默：exiting 标记存在 → 跳过
-- Rate Limiting：同类事件 rate_limit 秒内只推一次
+- Subagents: skip when agent_id is non-empty
+- Stop-loop protection: skip when stop_hook_active=true
+- /exit silence: skip when the exiting marker exists
+- Rate limiting: the same event category is pushed only once per rate_limit seconds
 
-## 迁移兼容
+## Migration compatibility
 
-- v1 用户运行新 install.sh 时，检测到旧 `notify.conf` 自动迁移为 `notify.json`
-- 环境变量（BARK_KEY 等）不再作为配置来源，仅 JSON 配置文件
-- macOS 用户无配置文件时仍然零配置可用（fallback 行为）
+- When v1 users run the new install.sh, an existing `notify.conf` is detected and migrated to `notify.json` automatically
+- Environment variables (BARK_KEY and so on) are no longer a configuration source; only the JSON configuration file is
+- macOS users can still run with zero configuration when no configuration file exists (fallback behavior)
 
-## 各 Channel API 参考
+## Channel API references
 
 ### Bark
 ```bash
@@ -300,21 +300,21 @@ curl -sf --max-time 10 -H "Content-Type: application/json" \
   "https://api.telegram.org/botTOKEN/sendMessage"
 ```
 
-### 企业微信
+### WeCom
 ```bash
 curl -sf --max-time 10 -H "Content-Type: application/json" \
   -d '{"msgtype":"text","text":{"content":"T\nB"}}' \
   "WEBHOOK_URL"
 ```
 
-### 飞书
+### Feishu
 ```bash
 curl -sf --max-time 10 -H "Content-Type: application/json" \
   -d '{"msg_type":"text","content":{"text":"T\nB"}}' \
   "WEBHOOK_URL"
 ```
 
-### 钉钉
+### DingTalk
 ```bash
 curl -sf --max-time 10 -H "Content-Type: application/json" \
   -d '{"msgtype":"text","text":{"content":"T\nB"}}' \

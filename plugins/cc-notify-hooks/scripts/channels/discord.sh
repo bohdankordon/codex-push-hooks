@@ -38,15 +38,15 @@ $body" \
                     color: $color,
                     fields: (
                         [
-                            {name:"项目", value:(.project // "unknown"), inline:true},
-                            {name:"事件", value:(.event_name // "unknown"), inline:true}
+                            {name:"Project", value:(.project // "unknown"), inline:true},
+                            {name:"Event", value:(.event_name // "unknown"), inline:true}
                         ]
-                        + (if (.tool_name | present) then [{name:"工具", value:.tool_name, inline:true}] else [] end)
+                        + (if (.tool_name | present) then [{name:"Tool", value:.tool_name, inline:true}] else [] end)
                         + (if (.event_kind == "user_input" and (.question_count // 0) > 0)
-                           then [{name:"问题数", value:((.question_count // 0) | tostring), inline:true}]
+                           then [{name:"Questions", value:((.question_count // 0) | tostring), inline:true}]
                            else [] end)
                         + (if (.event_kind == "user_input" and ((.option_labels // []) | length) > 0)
-                           then [{name:"选项", value:((.option_labels // []) | join(" / ")), inline:false}]
+                           then [{name:"Options", value:((.option_labels // []) | join(" / ")), inline:false}]
                            else [] end)
                         + (if (session_value | present) then [{name:"Session", value:session_value, inline:true}] else [] end)
                     ),

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gotify 推送（自建服务）
+# Gotify push (self-hosted)
 
 send_gotify() {
     local title="$1" body="$2" config="$3"

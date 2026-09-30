@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 企业微信群机器人 Webhook
+# WeCom group robot webhook
 
 send_wechat() {
     local title="$1" body="$2" config="$3" event_json="${4:-}"

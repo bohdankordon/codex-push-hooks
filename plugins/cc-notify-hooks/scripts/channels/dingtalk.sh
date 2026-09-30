@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 钉钉群机器人 Webhook
+# DingTalk group robot webhook
 
 send_dingtalk() {
     local title="$1" body="$2" config="$3" event_json="${4:-}"

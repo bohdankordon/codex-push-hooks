@@ -1,111 +1,112 @@
 # cc-notify-hooks
 
-**Claude Code**、**Codex CLI**、**Reasonix** 与 **dsh（DeepSeek Harness）** 的分级推送通知系统。支持 **11 个通知渠道**，可作为插件或独立脚本使用，各 agent 共享同一份配置。
+Tiered push notifications for **Claude Code**, **Codex CLI**, **Reasonix**, and **dsh (DeepSeek Harness)**. It supports **11 notification channels** and works either as a plugin or as standalone scripts, with every agent sharing a single configuration.
 
-## 为什么需要分级通知？
+## Why tiered notifications?
 
-Claude Code、Codex、Reasonix 和 dsh 的任务常常需要几秒到几十分钟不等。你不会一直盯着终端，但又需要在合适的时候回来操作。
+Tasks run by Claude Code, Codex, Reasonix, and dsh take anywhere from a few seconds to tens of minutes. You will not keep staring at the terminal, but you do need to come back at the right moment.
 
-**cc-notify-hooks 将通知分为两级**：
+**cc-notify-hooks splits notifications into two tiers:**
 
-**短通知（秒级）** — 你可能只是切到了浏览器或聊天窗口。系统通知、手机推送这类**即时触达**的渠道会在几秒内提醒你"Claude 需要你"。如果你看到通知并回来操作了，后续推送自动取消——不会再打扰你。
+**Short-delay notifications (seconds)** — you may have just switched to a browser or a chat window. Instant-reach channels such as desktop notifications and phone pushes remind you that "Claude needs you" within seconds. If you see the notification and come back, the queued pushes are cancelled automatically and you are not bothered again.
 
-**长通知（分钟级）** — 你可能离开了电脑、在开会、甚至不在手机旁。企业微信群、飞书群、Slack 频道这类**团队/异步渠道**会在几分钟后兜底通知。即使你错过了短通知，最终也能从工作沟通工具里看到任务状态。
+**Fallback notifications (minutes)** — you may have left the computer, joined a meeting, or stepped away from your phone. Team and asynchronous channels such as WeCom groups, Feishu groups, and Slack channels follow up after a few minutes. Even if you miss the short-delay notification, you can still see the task status in the tools your team already uses.
 
-**核心机制**：每次推送前检查用户是否已响应（pending 文件是否还在）。用户一旦回来操作，当前 Session 排队中的推送自动作废，其他并行 Session 不受影响。短通知解决了问题，长通知就不会再发。
+**How it works underneath**: every push checks whether the user has already responded (that is, whether the pending file still exists). As soon as you come back and interact, the queued pushes for the current session are voided, while other sessions running in parallel are unaffected. If a short-delay notification already solved the problem, the fallback notification is never sent.
 
-## 支持的渠道
+## Supported channels
 
-### 短通知渠道（即时触达）
+### Short-delay channels (instant reach)
 
-适合切屏、短暂离开的场景。
+Suited to switching windows or stepping away briefly.
 
-| 渠道 | 默认延迟 | 说明 |
-|------|---------|------|
-| **macOS** | 3s | 零配置，系统原生通知 |
-| **Telegram** | 5s | Bot 消息，手机即时推送 |
-| **Bark** | 15s | iOS / macOS / Android 推送 |
-| **Pushover** | 15s | 跨平台推送服务 |
-| **ntfy** | 15s | 开源推送，支持自建 |
-| **Gotify** | 15s | 自建推送服务 |
+| Channel | Default delay | Notes |
+|---------|---------------|-------|
+| **macOS** | 3s | Zero configuration, native system notifications |
+| **Telegram** | 5s | Bot message, instant phone push |
+| **Bark** | 15s | Push for iOS / macOS / Android |
+| **Pushover** | 15s | Cross-platform push service |
+| **ntfy** | 15s | Open-source push, self-hosting supported |
+| **Gotify** | 15s | Self-hosted push service |
 
-### 长通知渠道（异步兜底）
+### Fallback channels (async safety net)
 
-适合离开电脑、开会、或需要团队可见的场景。
+Suited to leaving the desk, joining meetings, or keeping a team informed.
 
-| 渠道 | 默认延迟 | 说明 |
-|------|---------|------|
-| **企业微信** | 5min | 群机器人 Webhook |
-| **飞书** | 5min | 群机器人 Webhook |
-| **钉钉** | 5min | 群机器人 Webhook |
+| Channel | Default delay | Notes |
+|---------|---------------|-------|
+| **WeCom** | 5min | Group robot webhook |
+| **Feishu** | 5min | Group robot webhook |
+| **DingTalk** | 5min | Group robot webhook |
 | **Slack** | 5min | Incoming Webhook |
 | **Discord** | 5min | Channel Webhook |
 
-每个渠道的延迟可独立调整。只启用你需要的渠道，其余自动跳过。
+Each channel has its own configurable delay. Enable only the channels you need; the rest are skipped automatically.
 
-## 工作原理
+## How it works
 
 ```
-Claude Code / Codex CLI 事件
+Claude Code / Codex CLI events
     │
-    ├─ Codex request_user_input → PreToolUse dispatcher → 等待输入通知
-    │                                      └─ PostToolUse → 定向取消
+    ├─ Codex request_user_input → PreToolUse dispatcher → waiting-for-input notification
+    │                                      └─ PostToolUse → targeted cancel
     ▼
-notify.sh ── 清除当前 Session 的旧 pending → 创建新 pending
+notify.sh ── clear stale pending for this session → create a new pending marker
     │
-    │  ┌── 短通知 ──────────────────────────────────┐
-    ├─ │ 3s  → pending 还在？ → macOS 系统通知      │
-    ├─ │ 5s  → pending 还在？ → Telegram             │
-    ├─ │ 15s → pending 还在？ → Bark / ntfy / ...    │
-    │  └────────────────────────────────────────────┘
-    │  ┌── 长通知 ──────────────────────────────────┐
-    └─ │ 5m  → pending 还在？ → 企微 / 飞书 / Slack │
-       └────────────────────────────────────────────┘
+    │  ┌── Short-delay notifications ─────────────────────┐
+    ├─ │ 3s  → pending still there? → macOS notification   │
+    ├─ │ 5s  → pending still there? → Telegram             │
+    ├─ │ 15s → pending still there? → Bark / ntfy / ...    │
+    │  └──────────────────────────────────────────────────┘
+    │  ┌── Fallback notifications ────────────────────────┐
+    └─ │ 5m  → pending still there? → WeCom / Feishu /     │
+       │                             DingTalk / Slack      │
+       └──────────────────────────────────────────────────┘
 
-用户回来操作（发消息 / 回答问题 / 点权限按钮）
-    └─→ clear_pending.sh → 清除当前 Session pending → 后续推送全部取消
-         （短通知解决了，长通知就不发了）
+User comes back (sends a message / answers a question / clicks an approval button)
+    └─→ clear_pending.sh → clear this session's pending → all queued pushes cancelled
+         (the short-delay notification already did its job, so the fallback stays quiet)
 ```
 
-## 安装
+## Installation
 
-### 依赖
+### Requirements
 
-- **jq** — 解析 JSON（`brew install jq` / `apt install jq`）
-- **curl** — 发送推送（通常已预装）
+- **jq** — JSON parsing (`brew install jq` / `apt install jq`)
+- **curl** — sending pushes (usually preinstalled)
 
-### 方式一：Claude Code Marketplace（推荐 Claude 用户）
+### Option 1: Claude Code marketplace (recommended for Claude users)
 
-在 Claude Code 中执行：
+In Claude Code, run:
 
 ```
 /plugin marketplace add MarioZZJ/cc-notify-hooks
 /plugin install cc-notify-hooks@cc-notify-hooks
 ```
 
-安装后运行 `/reload-plugins` 刷新，然后执行 `/cc-notify-hooks:config` 启动交互式配置向导（见下方[配置](#配置)章节）。
+After installing, run `/reload-plugins` to refresh, then run `/cc-notify-hooks:config` to start the interactive configuration wizard (see [Configuration](#configuration) below).
 
-### 方式二：Codex CLI Marketplace（推荐 Codex 用户）
+### Option 2: Codex CLI marketplace (recommended for Codex users)
 
-仓库根目录的 `.agents/plugins/marketplace.json` 是 Codex marketplace，实际插件目录是 `plugins/cc-notify-hooks/`。在终端执行：
+`.agents/plugins/marketplace.json` at the repository root is the Codex marketplace, and the actual plugin directory is `plugins/cc-notify-hooks/`. In your terminal, run:
 
 ```bash
 codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
 codex plugin add cc-notify-hooks@cc-notify-hooks
 ```
 
-启用 hooks（必需，Codex 默认关闭）：在 `~/.codex/config.toml` 添加：
+Enable hooks (required; Codex disables them by default) by adding this to `~/.codex/config.toml`:
 
 ```toml
 [features]
 codex_hooks = true
 ```
 
-之后重启 Codex，或在新会话中使用插件。安装或升级后，打开 `/hooks` 审阅并信任新增或变更的 hook 定义，否则 Codex 会跳过它们。
+Then restart Codex, or use the plugin in a new session. After installing or upgrading, open `/hooks` to review and trust the new or changed hook definitions, otherwise Codex skips them.
 
-注意：Codex 的 hook 命令运行目录是当前会话 `cwd`，不是插件根目录。`.codex-plugin/plugin.json` 只负责把 `hooks/codex-hooks.json` 作为生命周期配置打包进去；hook 命令不能写成 `./scripts/...`。本插件使用 Codex 提供的 `PLUGIN_ROOT` 定位脚本、使用 `PLUGIN_DATA` 保存插件配置和状态，因此兼容自定义 `CODEX_HOME`，不依赖固定的插件缓存路径。
+Note: Codex runs hook commands from the session `cwd`, not from the plugin root. `.codex-plugin/plugin.json` only packages `hooks/codex-hooks.json` as the lifecycle configuration; hook commands cannot be written as `./scripts/...`. This plugin locates its scripts through the `PLUGIN_ROOT` variable provided by Codex and stores plugin configuration and state in `PLUGIN_DATA`, so it works with a custom `CODEX_HOME` and does not depend on a fixed plugin cache path.
 
-### 方式三：本地插件模式
+### Option 3: Local plugin mode
 
 ```bash
 git clone https://github.com/MarioZZJ/cc-notify-hooks.git
@@ -113,63 +114,63 @@ git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 # Claude Code
 claude --plugin-dir ./cc-notify-hooks/plugins/cc-notify-hooks
 
-# Codex CLI: 见上文 Codex Marketplace 方式
+# Codex CLI: see the Codex marketplace option above
 ```
 
-### 方式四：独立安装（无需插件）
+### Option 4: Standalone installation (no plugin)
 
 ```bash
 git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 cd cc-notify-hooks
-bash install.sh                  # 交互式选择 Claude Code / Codex / Reasonix / dsh
-bash install.sh claude           # 直接装到 Claude Code
-bash install.sh codex            # 直接装到 Codex CLI
-bash install.sh reasonix         # 直接装到 Reasonix
-bash install.sh dsh              # 直接装到 dsh (DeepSeek Harness)
+bash install.sh                  # interactively choose Claude Code / Codex / Reasonix / dsh
+bash install.sh claude           # install into Claude Code directly
+bash install.sh codex            # install into Codex CLI directly
+bash install.sh reasonix         # install into Reasonix directly
+bash install.sh dsh              # install into dsh (DeepSeek Harness) directly
 ```
 
-安装脚本会交互式引导你选择渠道、输入凭证，自动生成配置：
+The installer walks you through channel selection and credential entry, then generates the configuration for you:
 
-- **Claude 分支**：写 `~/.claude/hooks/notify.json`，合并 hooks 到 `~/.claude/settings.json`
-- **Codex 分支**：写 `~/.codex/cc-notify-hooks/notify.json`，合并 hooks 到 `~/.codex/hooks.json`，提示你启用 `codex_hooks`
-- **Reasonix 分支**：写 `~/.reasonix/cc-notify-hooks/notify.json`，以 `reasonix plugin install --link` 注册本仓库插件（`reasonix-plugin.json` 声明 5 个 hook）
-- **dsh 分支**：写 `~/.dsh/cc-notify-hooks/notify.json`，软链插件包到 `~/node_modules/@dsh-local/dsh-cc-notify`，并在 `~/.dsh/cordis.patch.yml` 追加 insert 条目（dsh 热加载，无需重启）
+- **Claude branch**: writes `~/.claude/hooks/notify.json` and merges hooks into `~/.claude/settings.json`
+- **Codex branch**: writes `~/.codex/cc-notify-hooks/notify.json`, merges hooks into `~/.codex/hooks.json`, and reminds you to enable `codex_hooks`
+- **Reasonix branch**: writes `~/.reasonix/cc-notify-hooks/notify.json` and registers this repository as a plugin with `reasonix plugin install --link` (`reasonix-plugin.json` declares 5 hooks)
+- **dsh branch**: writes `~/.dsh/cc-notify-hooks/notify.json`, symlinks the plugin package into `~/node_modules/@dsh-local/dsh-cc-notify`, and appends an insert entry to `~/.dsh/cordis.patch.yml` (dsh hot-loads it, no restart required)
 
-**Claude 安装后运行 `/reload-plugins` 刷新；Codex 安装后重启 Codex 进程；Reasonix 安装后重启会话；dsh 安装后立即生效。**
+**After a Claude install, run `/reload-plugins` to refresh; after a Codex install, restart the Codex process; after a Reasonix install, restart the session; a dsh install takes effect immediately.**
 
-### 方式五：Reasonix 插件包（推荐 Reasonix 用户）
+### Option 5: Reasonix plugin package (recommended for Reasonix users)
 
-Reasonix 原生支持本仓库的 `reasonix-plugin.json`（`reasonix.io/plugin/v2`），可从 GitHub 仓库或本地目录安装：
+Reasonix natively supports this repository's `reasonix-plugin.json` (`reasonix.io/plugin/v2`), installable from the GitHub repository or from a local directory:
 
 ```bash
-# 从 GitHub（仓库根是兼容的 Claude marketplace，会安装 plugins/cc-notify-hooks）
+# From GitHub (the repository root is a compatible Claude marketplace and installs plugins/cc-notify-hooks)
 reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes
 
-# 或本地 clone 后链接安装（开发模式，仓库更新即时生效）
+# Or link a local clone (development mode: repository changes take effect immediately)
 git clone https://github.com/MarioZZJ/cc-notify-hooks.git
 reasonix plugin install ./cc-notify-hooks/plugins/cc-notify-hooks --link --yes
 ```
 
-安装后：
+After installing:
 
 ```bash
-reasonix plugin show cc-notify-hooks   # 查看 5 个 hook
-reasonix hook list --json              # 确认 hook 已加载
+reasonix plugin show cc-notify-hooks   # inspect the 5 hooks
+reasonix hook list --json              # confirm the hooks are loaded
 ```
 
-插件 hook 使用 `payloadFormat: "claude"`，脚本收到的 stdin 与 Claude Code 字段一致（`hook_event_name`/`session_id`/`message`…），共享同一份 `notify.sh`。配置文件放在 `~/.reasonix/cc-notify-hooks/notify.json`（也可复用 `~/.claude/hooks/notify.json` 或 `~/.codex/cc-notify-hooks/notify.json`，脚本按顺序查找）。
+Plugin hooks use `payloadFormat: "claude"`, so the scripts receive stdin with the same fields as Claude Code (`hook_event_name`/`session_id`/`message`…) and share the same `notify.sh`. The configuration file lives at `~/.reasonix/cc-notify-hooks/notify.json` (the scripts also accept `~/.claude/hooks/notify.json` or `~/.codex/cc-notify-hooks/notify.json`, searched in order).
 
-### 方式六：dsh 插件（DeepSeek Harness）
+### Option 6: dsh plugin (DeepSeek Harness)
 
-dsh 没有外部 shell hook，本仓库内置了一个零依赖的宿主插件 `dsh-cc-notify`（`plugins/cc-notify-hooks/dsh-plugin/`），直接订阅 dsh 的拦截点（`approval/request`、`agent/turn-stopping`、`agent/pre-step`、`tools/pre-execute`、`tools/post-execute`），并调用同一套 `scripts/`。
+dsh has no external shell hooks, so this repository ships a zero-dependency host plugin, `dsh-cc-notify` (`plugins/cc-notify-hooks/dsh-plugin/`), that subscribes directly to dsh interception points (`approval/request`, `agent/turn-stopping`, `agent/pre-step`, `tools/pre-execute`, `tools/post-execute`) and calls the same `scripts/`.
 
-推荐直接使用独立安装分支：
+The recommended path is the standalone installer:
 
 ```bash
 cd cc-notify-hooks && bash install/dsh.sh
 ```
 
-它做三件事：软链插件包到 `~/node_modules/@dsh-local/dsh-cc-notify`、写 `~/.dsh/cc-notify-hooks/notify.json`、在 `~/.dsh/cordis.patch.yml` 追加：
+It does three things: symlinks the plugin package into `~/node_modules/@dsh-local/dsh-cc-notify`, writes `~/.dsh/cc-notify-hooks/notify.json`, and appends this to `~/.dsh/cordis.patch.yml`:
 
 ```yaml
 - insert:
@@ -180,61 +181,61 @@ cd cc-notify-hooks && bash install/dsh.sh
         stateDir: /home/you/.claude/hooks/state
 ```
 
-dsh 会热加载 `~/.dsh/cordis.patch.yml`，正在运行的会话即刻生效（`dsh web --dump-config` 可验证条目已进入组合树）。插件单元测试：
+dsh hot-loads `~/.dsh/cordis.patch.yml`, so running sessions pick it up immediately (`dsh web --dump-config` confirms the entry made it into the composition tree). Plugin unit tests:
 
 ```bash
 node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs
 ```
 
-### 验证
+### Verification
 
 ```bash
-bash test_notify.sh              # 测试所有已启用渠道
-bash test_notify.sh bark         # 测试单个渠道
-bash test_notify.sh list         # 查看已启用渠道及延迟
-bash test_notify.sh hook         # 模拟 Claude Code hook 流程
-bash test_notify.sh codex        # 模拟 Codex CLI PermissionRequest 事件
-bash test_notify.sh codex-plugin-hooks  # 验证 Codex 插件 hook 路径解析
-bash test_notify.sh user-input   # 验证 request_user_input dispatcher 与模板
-bash test_notify.sh state        # 验证多 Session 状态隔离与精确去重
-bash test_notify.sh render       # 验证通知内容模板
-bash test_notify.sh agents       # 验证 Reasonix / dsh 的 agent 识别与事件字段
-node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh 插件单元测试
+bash test_notify.sh              # test every enabled channel
+bash test_notify.sh bark         # test a single channel
+bash test_notify.sh list         # show enabled channels and their delays
+bash test_notify.sh hook         # simulate the Claude Code hook flow
+bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event
+bash test_notify.sh codex-plugin-hooks  # verify Codex plugin hook path resolution
+bash test_notify.sh user-input   # verify the request_user_input dispatcher and templates
+bash test_notify.sh state        # verify multi-session state isolation and exact deduplication
+bash test_notify.sh render       # verify the notification content templates
+bash test_notify.sh agents       # verify Reasonix / dsh agent detection and event fields
+node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit tests
 ```
 
-## 配置
+## Configuration
 
-### 方式一：交互式配置（推荐）
+### Option 1: Interactive configuration (recommended)
 
-在 Claude Code 中运行：
+In Claude Code, run:
 
 ```
 /cc-notify-hooks:config
 ```
 
-配置向导会引导你：
-1. 选择要启用的**短通知渠道**（macOS、Telegram、Bark 等）
-2. 选择要启用的**长通知渠道**（企业微信、飞书、Slack 等）
-3. 逐个输入渠道凭证，附带获取指引
-4. 调整延迟时间
-5. 测试渠道连通性
+The wizard walks you through:
+1. Choosing the **short-delay channels** to enable (macOS, Telegram, Bark, and so on)
+2. Choosing the **fallback channels** to enable (WeCom, Feishu, Slack, and so on)
+3. Entering credentials for each channel, with guidance on where to find them
+4. Adjusting delays
+5. Testing channel connectivity
 
-已有配置的渠道会标注当前状态，支持随时修改。
+Channels that are already configured show their current state, and you can change them at any time.
 
-### 方式二：手动编辑配置文件
+### Option 2: Editing the configuration file manually
 
-创建配置文件 `~/.claude/hooks/notify.json`，可从模板复制后编辑：
+Create `~/.claude/hooks/notify.json`, either by fetching the template or by copying a local clone:
 
 ```bash
-# marketplace 安装：从项目仓库获取模板
+# marketplace install: fetch the template from the project repository
 curl -sL https://raw.githubusercontent.com/MarioZZJ/cc-notify-hooks/main/plugins/cc-notify-hooks/config/notify.example.json \
   -o ~/.claude/hooks/notify.json
 
-# 本地 clone：直接复制
+# local clone: copy it directly
 cp config/notify.example.json ~/.claude/hooks/notify.json
 ```
 
-然后编辑配置文件，将你需要的渠道设为 `"enabled": true` 并填入凭证：
+Then edit the file: set `"enabled": true` for the channels you need and fill in their credentials:
 
 ```json
 {
@@ -247,218 +248,218 @@ cp config/notify.example.json ~/.claude/hooks/notify.json
 }
 ```
 
-完整配置模板见 [`config/notify.example.json`](config/notify.example.json)。
+The complete template is in [`config/notify.example.json`](config/notify.example.json).
 
-### 字段说明
+### Field reference
 
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用该渠道 |
-| `delay` | 推送延迟（秒），可自由调整 |
-| `events` | 可选，响应的事件类型，默认 `["notification", "stop"]`。Codex 等待输入在内部标记为 `user_input`，渠道过滤仍按 `notification`，旧配置无需修改 |
-| `format` | 可选，长通知渠道的展示格式。飞书默认 `card`，企业微信/钉钉/Slack 默认 `markdown`，Discord 默认 `embed` |
-| 其他字段 | 各渠道的凭证（key、webhook、token 等） |
+| Field | Description |
+|-------|-------------|
+| `enabled` | Whether the channel is enabled |
+| `delay` | Push delay in seconds; adjust freely |
+| `events` | Optional list of event types to respond to; defaults to `["notification", "stop"]`. Codex waiting-for-input events are tagged internally as `user_input` while channel filtering still uses `notification`, so existing configurations need no changes |
+| `format` | Optional display format for fallback channels. Feishu defaults to `card`, WeCom/DingTalk/Slack default to `markdown`, Discord defaults to `embed` |
+| Other fields | Channel-specific credentials (key, webhook, token, and so on) |
 
-### 各渠道凭证
+### Channel credentials
 
 <details>
 <summary><b>Bark</b></summary>
 
-1. 安装 [Bark App](https://github.com/Finb/Bark)
-2. 首页推送 URL `https://api.day.app/xxxxxxxx`，`xxxxxxxx` 即为 `key`
-3. 自建服务器设置 `server` 字段
+1. Install the [Bark app](https://github.com/Finb/Bark)
+2. The push URL on the home screen looks like `https://api.day.app/xxxxxxxx`; `xxxxxxxx` is the `key`
+3. For a self-hosted server, set the `server` field
 </details>
 
 <details>
 <summary><b>Telegram</b></summary>
 
-1. 在 Telegram 中找 [@BotFather](https://t.me/BotFather)，创建 Bot，获取 `bot_token`
-2. 向你的 Bot 发一条消息
-3. 访问 `https://api.telegram.org/bot<TOKEN>/getUpdates` 获取 `chat_id`
+1. Find [@BotFather](https://t.me/BotFather) in Telegram, create a bot, and copy its `bot_token`
+2. Send your bot a message
+3. Visit `https://api.telegram.org/bot<TOKEN>/getUpdates` to get the `chat_id`
 </details>
 
 <details>
 <summary><b>Pushover</b></summary>
 
-1. 注册 [pushover.net](https://pushover.net)，获取 `user_key`
-2. 创建 Application，获取 `app_token`
+1. Register at [pushover.net](https://pushover.net) and get your `user_key`
+2. Create an application and get its `app_token`
 </details>
 
 <details>
 <summary><b>ntfy</b></summary>
 
-1. 安装 [ntfy App](https://ntfy.sh)，订阅一个 topic
-2. 配置 `topic` 字段，自建服务器设置 `server`
+1. Install the [ntfy app](https://ntfy.sh) and subscribe to a topic
+2. Set the `topic` field; for a self-hosted server, set `server`
 </details>
 
 <details>
 <summary><b>Gotify</b></summary>
 
-1. 自建 [Gotify](https://gotify.net) 服务
-2. 创建 Application，获取 `app_token`
-3. 配置 `server` 和 `app_token`
+1. Self-host a [Gotify](https://gotify.net) instance
+2. Create an application and get its `app_token`
+3. Set `server` and `app_token`
 </details>
 
 <details>
-<summary><b>企业微信</b></summary>
+<summary><b>WeCom</b></summary>
 
-1. 群聊 → 右上角「⋯」→ 群机器人 → 添加 → 新创建
-2. 复制 Webhook 地址到 `webhook` 字段
+1. Group chat → "⋯" in the top right → Group Robot → Add → Create
+2. Copy the webhook URL into the `webhook` field
 </details>
 
 <details>
-<summary><b>飞书</b></summary>
+<summary><b>Feishu</b></summary>
 
-1. 群设置 → 群机器人 → 添加机器人 → 自定义机器人
-2. 复制 Webhook 地址到 `webhook` 字段
+1. Group settings → Group Bots → Add Bot → Custom Bot
+2. Copy the webhook URL into the `webhook` field
 </details>
 
 <details>
-<summary><b>钉钉</b></summary>
+<summary><b>DingTalk</b></summary>
 
-1. 群设置 → 智能群助手 → 添加机器人 → 自定义（关键词模式）
-2. 复制 Webhook 地址到 `webhook` 字段
-3. 关键词需包含在通知内容中（项目名通常可满足）
+1. Group settings → Smart Group Assistant → Add Robot → Custom (keyword mode)
+2. Copy the webhook URL into the `webhook` field
+3. The keyword must appear in the notification content (the project name usually satisfies this)
 </details>
 
 <details>
 <summary><b>Slack</b></summary>
 
-1. 创建 [Slack App](https://api.slack.com/apps) → Incoming Webhooks → 启用
-2. Add New Webhook to Workspace → 选择频道
-3. 复制 Webhook URL 到 `webhook` 字段
+1. Create a [Slack app](https://api.slack.com/apps) → Incoming Webhooks → enable
+2. Add New Webhook to Workspace → choose a channel
+3. Copy the webhook URL into the `webhook` field
 </details>
 
 <details>
 <summary><b>Discord</b></summary>
 
-1. 服务器设置 → 整合 → Webhooks → 新建
-2. 选择频道，复制 Webhook URL 到 `webhook` 字段
+1. Server settings → Integrations → Webhooks → New Webhook
+2. Choose a channel and copy the webhook URL into the `webhook` field
 </details>
 
-## 监听事件
+## Events we listen to
 
 ### Claude Code
 
-| Hook | 触发时机 | 行为 |
-|------|---------|------|
-| Notification | 权限确认、等待输入等 | 分级推送 |
-| Stop | Claude 回复结束 | 分级推送 |
-| UserPromptSubmit | 用户发消息 | 清除 pending |
-| PreToolUse | 用户点权限按钮 | 清除 pending |
+| Hook | Trigger | Behavior |
+|------|---------|----------|
+| Notification | Permission prompts, waiting for input, and similar | Tiered push |
+| Stop | Claude finishes a reply | Tiered push |
+| UserPromptSubmit | User sends a message | Clear pending |
+| PreToolUse | User clicks an approval button | Clear pending |
 
 ### Codex CLI
 
-| Hook | 触发时机 | 行为 |
-|------|---------|------|
-| PermissionRequest | Codex 请求授权时 | 分级推送 |
-| Stop | Codex 回合结束 | 分级推送 |
-| UserPromptSubmit | 用户发消息 | 清除 pending |
-| PreToolUse | `request_user_input` 调用前 | 发送“需要回复”通知；其他工具清除当前 Session pending |
-| PostToolUse | `request_user_input` 收到回答后 | 只取消当前 Session 尚未发送的输入通知 |
+| Hook | Trigger | Behavior |
+|------|---------|----------|
+| PermissionRequest | Codex asks for authorization | Tiered push |
+| Stop | Codex finishes a turn | Tiered push |
+| UserPromptSubmit | User sends a message | Clear pending |
+| PreToolUse | Before a `request_user_input` call | Send a "reply needed" notification; other tools clear the current session's pending markers |
+| PostToolUse | After `request_user_input` receives an answer | Cancel only the input notifications for the current session that have not been sent yet |
 
-> Codex 没有独立的等待输入事件。插件通过 `PreToolUse(request_user_input)` 精确识别等待状态，并复用 `notification` 渠道配置。
+> Codex has no dedicated waiting-for-input event. The plugin detects the waiting state precisely through `PreToolUse(request_user_input)` and reuses the `notification` channel configuration.
 
 ### Reasonix
 
-通过 `reasonix-plugin.json` 声明（`payloadFormat: "claude"`，脚本收到 Claude 形状的 stdin）：
+Declared in `reasonix-plugin.json` (`payloadFormat: "claude"`, so the scripts receive Claude-shaped stdin):
 
-| Hook | 触发时机 | 行为 |
-|------|---------|------|
-| Notification | 等待工具审批等需要用户注意时（`notification_type=permission_prompt`） | 分级推送 |
-| Stop | 一轮对话结束（`last_assistant_message` 为摘要） | 分级推送 |
-| UserPromptSubmit | 用户发消息 | 清除 pending / `/exit` 标记 |
-| PreToolUse | `ask`（提问工具）调用前 | 发送"需要回复"通知；其他工具清除当前 Session pending |
-| PostToolUse | `AskUserQuestion` 收到回答后 | 只取消当前 Session 尚未发送的输入通知 |
+| Hook | Trigger | Behavior |
+|------|---------|----------|
+| Notification | When user attention is needed, such as waiting for tool approval (`notification_type=permission_prompt`) | Tiered push |
+| Stop | A conversation turn ends (`last_assistant_message` carries the summary) | Tiered push |
+| UserPromptSubmit | User sends a message | Clear pending / mark `/exit` |
+| PreToolUse | Before an `ask` (question tool) call | Send a "reply needed" notification; other tools clear the current session's pending markers |
+| PostToolUse | After `AskUserQuestion` receives an answer | Cancel only the input notifications for the current session that have not been sent yet |
 
-> Reasonix 的事件 key 与 Claude 一致（`hook_event_name`），脚本同时兼容 Reasonix 原生格式（`event`/`sessionId`/`lastAssistantText` 字段兜底）。安装后需重启 Reasonix 会话（`/new` 不会重新加载 hooks）。
+> Reasonix event keys match Claude's (`hook_event_name`), and the scripts also accept Reasonix's native format as a fallback (`event`/`sessionId`/`lastAssistantText` fields). Restart the Reasonix session after installing (`/new` does not reload hooks).
 
-### dsh（DeepSeek Harness）
+### dsh (DeepSeek Harness)
 
-通过宿主插件 `dsh-cc-notify` 订阅 dsh 拦截点（等价于外部 hook 的语义）：
+The host plugin `dsh-cc-notify` subscribes to dsh interception points (equivalent to external hook semantics):
 
-| 拦截点 | 触发时机 | 行为 |
-|------|---------|------|
-| `approval/request` | 工具审批等待用户决策时 | 分级推送"需要确认"（代理 `next()`，永不代答） |
-| `agent/turn-stopping` | 一轮结束的自然停止边界 | 分级推送"任务完成"（摘要来自 `assistant/message` 跟踪） |
-| `agent/pre-step` | 用户提交消息后 | 清除 pending / `/exit` 标记 |
-| `tools/pre-execute` | `ask_user_question` 调用前 | 发送"需要回复"通知；其他工具清除当前 Session pending |
-| `tools/post-execute` | `ask_user_question` 返回后 | 只取消当前 Session 尚未发送的输入通知 |
+| Interception point | Trigger | Behavior |
+|--------------------|---------|----------|
+| `approval/request` | Tool approval waiting for a user decision | Tiered push of "approval needed" (proxies `next()`, never answers on your behalf) |
+| `agent/turn-stopping` | Natural stopping boundary at the end of a turn | Tiered push of "task complete" (summary tracked from `assistant/message`) |
+| `agent/pre-step` | After the user submits a message | Clear pending / mark `/exit` |
+| `tools/pre-execute` | Before an `ask_user_question` call | Send a "reply needed" notification; other tools clear the current session's pending markers |
+| `tools/post-execute` | After `ask_user_question` returns | Cancel only the input notifications for the current session that have not been sent yet |
 
-> 插件只观察、不拦截：所有 waterfall 监听器都通过 `next()` 代理，绝不会阻塞或代答 dsh 的决策。
+> The plugin only observes; it never intercepts. Every waterfall listener delegates through `next()` and never blocks or answers a dsh decision.
 
-## 通知内容
+## Notification content
 
-通知先归一为统一字段，再按短通知和长通知分别渲染。标题使用实际 Agent 名，不再写死为 Claude。
+Notifications are first normalized into a shared set of fields, then rendered separately for short-delay and fallback channels. Titles use the actual agent name instead of being hard-coded to Claude.
 
-| 场景 | 标题 |
-|------|------|
-| Claude Code Notification idle_prompt | `Claude Code · 等待响应 ⏳` |
-| Codex PermissionRequest | `Codex · 需要确认 🔔` |
-| Codex request_user_input | `Codex · 需要回复 🔔` |
-| Reasonix Notification（等待审批） | `Reasonix · 需要确认 🔔` |
-| Reasonix `ask` 提问 | `Reasonix · 需要回复 🔔` |
-| dsh `approval/request` | `dsh · 需要确认 🔔` |
-| dsh `ask_user_question` | `dsh · 需要回复 🔔` |
-| Stop | `{Agent} · 任务完成 ✅` |
-| 异常 / 未知事件 | `{Agent} · 异常 ⚠️` |
+| Scenario | Title |
+|----------|-------|
+| Claude Code Notification idle_prompt | `Claude Code · Awaiting response ⏳` |
+| Codex PermissionRequest | `Codex · Approval needed 🔔` |
+| Codex request_user_input | `Codex · Reply needed 🔔` |
+| Reasonix Notification (waiting for approval) | `Reasonix · Approval needed 🔔` |
+| Reasonix `ask` question | `Reasonix · Reply needed 🔔` |
+| dsh `approval/request` | `dsh · Approval needed 🔔` |
+| dsh `ask_user_question` | `dsh · Reply needed 🔔` |
+| Stop | `{Agent} · Task complete ✅` |
+| Error / unknown event | `{Agent} · Error ⚠️` |
 
-Agent 名识别顺序：`CC_NOTIFY_AGENT` 环境变量（显式覆盖）→ Reasonix 插件环境 `REASONIX_PLUGIN_ROOT` → dsh 插件环境 `DSH_CC_NOTIFY` → 事件/path 特征（Notification 或 `.claude` 路径 → Claude Code，否则 Codex）。
+Agent detection order: the `CC_NOTIFY_AGENT` environment variable (an explicit override) → the Reasonix plugin environment `REASONIX_PLUGIN_ROOT` → the dsh plugin environment `DSH_CC_NOTIFY` → event/path characteristics (a Notification event or a `.claude` path means Claude Code, otherwise Codex).
 
-短通知正文只保留打断所需信息：
-
-```text
-[项目名] summary_short · tool_name
-```
-
-其中 `tool_name` 是条件字段，没有就不显示；`permission_mode` 不进入通知正文。
-
-Codex 等待输入使用专用短正文，包含问题数和短 Session id：
+Short-delay bodies keep only what you need to interrupt your work:
 
 ```text
-[项目名] 首个问题摘要 · 2 个问题 · Session 019eabcd
+[project] summary_short · tool_name
 ```
 
-长通知正文第一行显示 `summary_short`，随后显示定位字段：
+`tool_name` is conditional and omitted when empty; `permission_mode` never appears in the notification body.
+
+Codex waiting-for-input events use a dedicated short body with the question count and a short session id:
+
+```text
+[project] first question summary · 2 questions · Session 019eabcd
+```
+
+Fallback bodies show `summary_short` on the first line, followed by locating fields:
 
 ```text
 summary_short
 
-项目: project
-事件: hook_event_name
-工具: tool_name      # 有值才显示
+Project: project
+Event: hook_event_name
+Tool: tool_name      # shown only when present
 Session: session_short
 
 model · cwd · hostname
 ```
 
-等待输入的长通知额外显示问题数、首题选项和完整 Session id。飞书默认发送消息卡片；企业微信、钉钉、Slack 使用近似 Markdown 模板；Discord 使用 embed。`summary_short` 来自 `message/prompt`、首个结构化问题或 `last_assistant_message` 的首个非空行，最长保留 120 字。
+Fallback notifications for waiting-for-input also show the number of questions, the first question's options, and the full session id. Feishu sends a message card by default; WeCom, DingTalk, and Slack use an approximate Markdown template; Discord uses an embed. `summary_short` comes from `message/prompt`, the first structured question, or the first non-empty line of `last_assistant_message`, truncated to 120 characters.
 
-## 过滤规则
+## Filtering rules
 
-| 规则 | 说明 |
-|------|------|
-| 子智能体过滤 | `agent_id` 非空时跳过 |
-| Stop 循环保护 | `stop_hook_active=true` 时跳过 |
-| `/exit` 静默 | 只抑制当前 Session 后续的 Stop 事件 |
-| Rate Limiting | 按 Session + 事件类别限流；`request_user_input` 使用 `tool_use_id` 精确去重 |
+| Rule | Description |
+|------|-------------|
+| Subagent filtering | Skip when `agent_id` is non-empty |
+| Stop-loop protection | Skip when `stop_hook_active=true` |
+| `/exit` silence | Suppress only subsequent Stop events for the current session |
+| Rate limiting | Throttled per session and event category; `request_user_input` deduplicates precisely by `tool_use_id` |
 
-## 文件结构
+## File structure
 
 ```
 cc-notify-hooks/
 ├── .claude-plugin/
 │   ├── plugin.json -> ../plugins/cc-notify-hooks/.claude-plugin/plugin.json
-│   └── marketplace.json     # Claude Code marketplace（指向 plugins/cc-notify-hooks）
+│   └── marketplace.json     # Claude Code marketplace (points at plugins/cc-notify-hooks)
 ├── .codex-plugin/
 │   └── plugin.json -> ../plugins/cc-notify-hooks/.codex-plugin/plugin.json
 ├── .agents/plugins/
-│   └── marketplace.json     # Codex CLI marketplace（指向 plugins/cc-notify-hooks）
-├── plugins/cc-notify-hooks/ # 真实插件根目录，Claude/Codex/Reasonix/dsh 都从这里安装
+│   └── marketplace.json     # Codex CLI marketplace (points at plugins/cc-notify-hooks)
+├── plugins/cc-notify-hooks/ # the real plugin root; Claude/Codex/Reasonix/dsh all install from here
 │   ├── .claude-plugin/plugin.json
 │   ├── .codex-plugin/plugin.json
-│   ├── reasonix-plugin.json # Reasonix 原生插件清单（v2，5 个 hook）
-│   ├── dsh-plugin/          # dsh 宿主插件（零依赖 cordis 插件）
+│   ├── reasonix-plugin.json # native Reasonix plugin manifest (v2, 5 hooks)
+│   ├── dsh-plugin/          # dsh host plugin (zero-dependency cordis plugin)
 │   │   ├── package.json
 │   │   ├── index.js
 │   │   └── test/plugin.test.mjs
@@ -477,45 +478,45 @@ cc-notify-hooks/
 ├── hooks -> plugins/cc-notify-hooks/hooks
 ├── scripts -> plugins/cc-notify-hooks/scripts
 ├── config -> plugins/cc-notify-hooks/config
-├── install.sh               # 独立安装入口（路由）
+├── install.sh               # standalone installer entry point (router)
 ├── install/
-│   ├── claude.sh            # Claude Code 安装分支
-│   ├── codex.sh             # Codex CLI 安装分支
-│   ├── reasonix.sh          # Reasonix 安装分支（reasonix plugin install --link）
-│   └── dsh.sh               # dsh 安装分支（软链插件 + cordis.patch.yml insert）
+│   ├── claude.sh            # Claude Code install branch
+│   ├── codex.sh             # Codex CLI install branch
+│   ├── reasonix.sh          # Reasonix install branch (reasonix plugin install --link)
+│   └── dsh.sh               # dsh install branch (plugin symlink + cordis.patch.yml insert)
 └── test_notify.sh -> plugins/cc-notify-hooks/test_notify.sh
 ```
 
-调试日志：`/tmp/claude-hooks-debug.log`
+Debug log: `/tmp/claude-hooks-debug.log`
 
-## 卸载
+## Uninstall
 
-**Claude Code 插件**：在 Claude Code 中 `/plugin` 管理。
+**Claude Code plugin**: manage it with `/plugin` inside Claude Code.
 
-**Codex CLI 插件**：在 Codex 中 `/plugin` 管理。
+**Codex CLI plugin**: manage it with `/plugin` inside Codex.
 
-**独立安装（Claude）**：
+**Standalone install (Claude)**:
 ```bash
 rm -rf ~/.claude/hooks/scripts ~/.claude/hooks/notify.json ~/.claude/hooks/state
-# 手动编辑 ~/.claude/settings.json 移除相关 hooks
+# edit ~/.claude/settings.json manually to remove the related hooks
 ```
 
-**独立安装（Codex）**：
+**Standalone install (Codex)**:
 ```bash
 rm -rf ~/.codex/cc-notify-hooks
-# 手动编辑 ~/.codex/hooks.json 移除相关事件，可选关闭 codex_hooks
+# edit ~/.codex/hooks.json manually to remove the related events; optionally turn off codex_hooks
 ```
 
-**独立安装（Reasonix）**：
+**Standalone install (Reasonix)**:
 ```bash
 reasonix plugin remove cc-notify-hooks --yes
 rm -rf ~/.reasonix/cc-notify-hooks
 ```
 
-**独立安装（dsh）**：
+**Standalone install (dsh)**:
 ```bash
 rm -f ~/node_modules/@dsh-local/dsh-cc-notify
-# 手动编辑 ~/.dsh/cordis.patch.yml，删除 cc-notify-hooks 的 insert 条目
+# edit ~/.dsh/cordis.patch.yml manually and delete the cc-notify-hooks insert entry
 rm -rf ~/.dsh/cc-notify-hooks
 ```
 

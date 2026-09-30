@@ -128,13 +128,13 @@ const waitTick = () => new Promise((resolve) => setTimeout(resolve, 100))
 
 // ---- 2. agent/turn-stopping → notify.sh stop with tracked assistant text ---
 {
-  fire('session/event', { id: 'session-1' }, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '任务完成。' }, { type: 'reasoning', text: 'ignored' }] } } })
+  fire('session/event', { id: 'session-1' }, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Task finished.' }, { type: 'reasoning', text: 'ignored' }] } } })
   fire('agent/turn-stopping', { agent: { session: { header: { id: 'session-1', cwd: '/tmp/proj' } } }, turn: 3, signal: null })
   await waitTick()
   const payload = payloadOf('notify.sh')
   const ok =
     payload?.hook_event_name === 'Stop' &&
-    payload?.last_assistant_message === '任务完成。' &&
+    payload?.last_assistant_message === 'Task finished.' &&
     payload?.session_id === 'session-1' &&
     capture('notify.sh').includes('argv=stop')
   ok
@@ -146,7 +146,7 @@ const waitTick = () => new Promise((resolve) => setTimeout(resolve, 100))
 {
   const outcome = await fireWaterfall('agent/pre-step', {
     agent: { session: { header: { id: 'session-1', cwd: '/tmp/proj' } } },
-    messages: [{ content: [{ type: 'text', text: '继续' }] }],
+    messages: [{ content: [{ type: 'text', text: 'Continue' }] }],
     turn: 4, step: 1, signal: null,
   }, { kind: 'enter', messages: [] })
   await waitTick()
@@ -154,7 +154,7 @@ const waitTick = () => new Promise((resolve) => setTimeout(resolve, 100))
   const ok =
     outcome.length === 1 && outcome[0]?.kind === 'enter' &&
     payload?.hook_event_name === 'UserPromptSubmit' &&
-    payload?.prompt === '继续'
+    payload?.prompt === 'Continue'
   ok
     ? pass('agent/pre-step spawns clear_pending.sh and delegates next()')
     : fail('agent/pre-step', JSON.stringify({ payload, outcome }))
@@ -164,7 +164,7 @@ const waitTick = () => new Promise((resolve) => setTimeout(resolve, 100))
 {
   const exec = {
     name: 'ask_user_question',
-    arguments: { questions: [{ header: '范围', question: '修复哪些？', options: [{ label: '全部' }] }] },
+    arguments: { questions: [{ header: 'Scope', question: 'Which parts should be fixed?', options: [{ label: 'Everything' }] }] },
     callId: 'call-ask',
     agent: { session: { header: { id: 'session-1', cwd: '/tmp/proj' } } },
   }
@@ -175,7 +175,7 @@ const waitTick = () => new Promise((resolve) => setTimeout(resolve, 100))
     outcome.length === 1 && outcome[0]?.kind === 'allow' &&
     payload?.hook_event_name === 'PreToolUse' &&
     payload?.tool_name === 'request_user_input' &&
-    payload?.tool_input?.questions?.[0]?.header === '范围' &&
+    payload?.tool_input?.questions?.[0]?.header === 'Scope' &&
     payload?.tool_use_id === 'call-ask'
   ok
     ? pass('tools/pre-execute rewrites ask_user_question and delegates next()')

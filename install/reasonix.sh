@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks 独立安装脚本（Reasonix 分支）
-# 配置写入 ~/.reasonix/cc-notify-hooks/notify.json，
-# 插件以 --link 方式注册到 Reasonix（reasonix plugin install）。
+# cc-notify-hooks standalone install script (Reasonix branch)
+# Writes the configuration to ~/.reasonix/cc-notify-hooks/notify.json and
+# registers the plugin with Reasonix in --link mode (reasonix plugin install).
 #
-# 既可被 install.sh 路由调用，也可独立运行：
+# Can be called by the install.sh router or run on its own:
 #   bash install/reasonix.sh
 
 set -euo pipefail
@@ -14,7 +14,7 @@ PLUGIN_DIR="${REPO_ROOT}/plugins/cc-notify-hooks"
 REASONIX_HOME_DIR="${REASONIX_HOME:-${HOME}/.reasonix}"
 INSTALL_DIR="${REASONIX_HOME_DIR}/cc-notify-hooks"
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
-STATE_DIR="${HOME}/.claude/hooks/state"  # 与其他 agent 共用 state 目录
+STATE_DIR="${HOME}/.claude/hooks/state"  # shared state directory for all agents
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -27,19 +27,19 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - Reasonix 独立安装"
-echo "  平台: $(uname -s) $(uname -m)"
+echo "  cc-notify-hooks - Reasonix standalone install"
+echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
 
 # ============================================================
-#  [1/4] 检查依赖
+#  [1/4] Check dependencies
 # ============================================================
-echo -e "${YELLOW}[1/4]${NC} 检查依赖..."
+echo -e "${YELLOW}[1/4]${NC} checking dependencies..."
 MISSING_DEP=0
 for cmd in jq curl; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo -e "  ${RED}✗${NC} $cmd 未安装"
+        echo -e "  ${RED}✗${NC} $cmd is not installed"
         MISSING_DEP=1
     else
         echo -e "  ${GREEN}✓${NC} $cmd"
@@ -47,7 +47,7 @@ for cmd in jq curl; do
 done
 if [ "$MISSING_DEP" -eq 1 ]; then
     echo ""
-    echo "  请先安装缺失的依赖："
+    echo "  Install the missing dependencies first:"
     if $IS_MACOS; then
         echo "  macOS:         brew install jq curl"
     else
@@ -58,26 +58,26 @@ if [ "$MISSING_DEP" -eq 1 ]; then
 fi
 
 if ! command -v reasonix &>/dev/null; then
-    echo -e "  ${YELLOW}⚠${NC} 未检测到 reasonix CLI（继续安装，请稍后再装 Reasonix）"
+    echo -e "  ${YELLOW}⚠${NC} reasonix CLI not detected (continuing; install Reasonix later)"
 fi
 
 # ============================================================
-#  [2/4] 交互式配置
+#  [2/4] Interactive configuration
 # ============================================================
-echo -e "${YELLOW}[2/4]${NC} 配置推送渠道..."
+echo -e "${YELLOW}[2/4]${NC} configuring push channels..."
 echo ""
 
-# Channel 定义：name|display_name|default_delay|credential_fields
+# Channel definitions: name|display_name|default_delay|credential_fields
 CHANNEL_DEFS=(
-    "macos|macOS 系统通知|3|"
+    "macos|macOS system notification|3|"
     "bark|Bark (iOS/macOS/Android)|15|key:Bark Key;server:Bark Server [https://api.day.app]"
     "telegram|Telegram Bot|5|bot_token:Bot Token;chat_id:Chat ID"
     "pushover|Pushover|15|app_token:App Token;user_key:User Key"
-    "ntfy|ntfy (开源推送)|15|topic:Topic;server:Server [https://ntfy.sh]"
-    "gotify|Gotify (自建推送)|15|server:Server URL;app_token:App Token"
-    "wechat|企业微信|300|webhook:Webhook URL"
-    "feishu|飞书|300|webhook:Webhook URL"
-    "dingtalk|钉钉|300|webhook:Webhook URL"
+    "ntfy|ntfy (open-source push)|15|topic:Topic;server:Server [https://ntfy.sh]"
+    "gotify|Gotify (self-hosted push)|15|server:Server URL;app_token:App Token"
+    "wechat|WeCom|300|webhook:Webhook URL"
+    "feishu|Feishu|300|webhook:Webhook URL"
+    "dingtalk|DingTalk|300|webhook:Webhook URL"
     "slack|Slack|300|webhook:Webhook URL"
     "discord|Discord|300|webhook:Webhook URL"
 )
@@ -95,19 +95,19 @@ _read_json() {
     echo "$default"
 }
 
-# 复用已有配置（Claude / Codex），避免重复填写凭证
+# Reuse an existing configuration (Claude / Codex) so credentials are not entered twice
 if [ ! -f "$CONFIG_FILE" ]; then
     for existing in \
         "${HOME}/.claude/hooks/notify.json" \
         "${CODEX_HOME:-${HOME}/.codex}/cc-notify-hooks/notify.json"; do
         if [ -f "$existing" ]; then
-            echo -e "  ${CYAN}检测到已有配置，可直接复用${NC}"
-            printf "  复用 $existing ? [Y/n]: "
+            echo -e "  ${CYAN}Existing configuration detected; it can be reused${NC}"
+            printf "  Reuse $existing? [Y/n]: "
             read -r reuse
             if [[ ! "$reuse" =~ ^[Nn] ]]; then
                 mkdir -p "$INSTALL_DIR"
                 cp "$existing" "$CONFIG_FILE"
-                echo -e "  ${GREEN}✓${NC} 已复用配置"
+                echo -e "  ${GREEN}✓${NC} reused the configuration"
                 echo ""
             fi
             break
@@ -116,12 +116,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ -f "$CONFIG_FILE" ]; then
-    echo -e "  ${CYAN}检测到已有配置 ($CONFIG_FILE)${NC}"
+    echo -e "  ${CYAN}Existing configuration detected ($CONFIG_FILE)${NC}"
     echo ""
 fi
 
-# 列出 channel 让用户选择
-echo "  可用的通知渠道："
+# List the channels for the user to choose from
+echo "  Available notification channels:"
 echo ""
 idx=1
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -135,13 +135,13 @@ for def in "${CHANNEL_DEFS[@]}"; do
     if [ "$name" = "macos" ] && $IS_MACOS && [ "$current_enabled" = "false" ] && [ ! -f "$CONFIG_FILE" ]; then
         mark="${GREEN}✓${NC}"
     fi
-    printf "  %s [%b] %2d. %-30s (默认延迟 %ss)\n" "" "$mark" "$idx" "$display" "$delay"
+    printf "  %s [%b] %2d. %-30s (default delay %ss)\n" "" "$mark" "$idx" "$display" "$delay"
     idx=$((idx + 1))
 done
 echo ""
-echo -e "  ${CYAN}输入编号启用渠道（逗号分隔，如 1,2,7），直接回车保持当前配置${NC}"
+echo -e "  ${CYAN}Enter the numbers of the channels to enable (comma-separated, e.g. 1,2,7); press Enter to keep the current configuration${NC}"
 
-printf "  选择: "
+printf "  Choose: "
 read -r selection
 
 declare -A ENABLED_CHANNELS=()
@@ -167,7 +167,7 @@ fi
 
 echo ""
 
-# 收集凭证
+# Collect credentials
 declare -A CHANNEL_CONFIGS=()
 
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -180,7 +180,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
         continue
     fi
 
-    echo -e "  ${CYAN}配置 ${display}:${NC}"
+    echo -e "  ${CYAN}Configuring ${display}:${NC}"
 
     IFS=';' read -ra FIELD_DEFS <<< "$fields"
     for fdef in "${FIELD_DEFS[@]}"; do
@@ -200,7 +200,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
                 hint="$current"
             fi
         else
-            hint="必填"
+            hint="required"
         fi
 
         printf "    %s [%s]: " "$fdesc" "$hint"
@@ -210,7 +210,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
     echo ""
 done
 
-# 构建配置 JSON
+# Build the configuration JSON
 CONFIG_JSON='{"channels":{},"rate_limit":10}'
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -255,21 +255,21 @@ done
 
 mkdir -p "$INSTALL_DIR"
 echo "$CONFIG_JSON" | jq '.' > "$CONFIG_FILE"
-echo -e "  ${GREEN}✓${NC} 配置已写入 $CONFIG_FILE"
+echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 
 # ============================================================
-#  [3/4] 注册插件到 Reasonix
+#  [3/4] Register the plugin with Reasonix
 # ============================================================
-echo -e "${YELLOW}[3/4]${NC} 注册插件到 Reasonix（--link 指向本仓库）..."
+echo -e "${YELLOW}[3/4]${NC} registering the plugin with Reasonix (--link points at this repository)..."
 mkdir -p "$STATE_DIR"
 
 reasonix plugin install "$PLUGIN_DIR" --link --replace --yes >/dev/null
 
 HOOK_COUNT=$(reasonix hook list --json 2>/dev/null | jq -r '.hooks | length' 2>/dev/null || echo "?")
-echo -e "  ${GREEN}✓${NC} 插件已注册，Reasonix 加载了 ${HOOK_COUNT} 个 hook"
+echo -e "  ${GREEN}✓${NC} plugin registered; Reasonix loaded ${HOOK_COUNT} hooks"
 
 # ============================================================
-#  [4/4] 总结输出
+#  [4/4] Summary
 # ============================================================
 echo ""
 ENABLED_COUNT=0
@@ -278,33 +278,33 @@ for name in "${!ENABLED_CHANNELS[@]}"; do
 done
 
 if [ "$ENABLED_COUNT" -eq 0 ]; then
-    echo -e "  ${YELLOW}⚠${NC} 未启用任何推送渠道"
+    echo -e "  ${YELLOW}⚠${NC} no push channel is enabled"
 else
-    echo "  已启用的渠道："
+    echo "  Enabled channels:"
     for def in "${CHANNEL_DEFS[@]}"; do
         IFS='|' read -r name display delay _ <<< "$def"
         if [ "${ENABLED_CHANNELS[$name]:-}" = "1" ]; then
-            echo -e "  ${GREEN}✓${NC} ${display} (延迟 ${delay}s)"
+            echo -e "  ${GREEN}✓${NC} ${display} (delay ${delay}s)"
         fi
     done
 fi
 
 echo ""
 echo "========================================="
-echo -e "  ${GREEN}✅ 安装完成！${NC}"
+echo -e "  ${GREEN}✅ Installation complete!${NC}"
 echo ""
-echo "  下一步:"
-echo "  1. 测试: bash $REPO_ROOT/test_notify.sh"
-echo "  2. 重启 Reasonix 会话使 hooks 生效（/new 不会重新加载）"
-echo "  3. 调试: tail -f /tmp/claude-hooks-debug.log"
+echo "  Next steps:"
+echo "  1. Test: bash $REPO_ROOT/test_notify.sh"
+echo "  2. Restart the Reasonix session so the hooks take effect (/new does not reload them)"
+echo "  3. Debug: tail -f /tmp/claude-hooks-debug.log"
 echo ""
-echo "  事件映射:"
-echo "    Notification       → 等待工具审批时推送（需要确认 🔔）"
-echo "    Stop               → 一轮对话结束推送（任务完成 ✅）"
-echo "    UserPromptSubmit   → 用户响应后取消排队推送"
-echo "    PreToolUse(ask)    → 提问时推送（需要回复 🔔），其他工具清理 pending"
+echo "  Event mapping:"
+echo "    Notification       → push while waiting for tool approval (approval needed 🔔)"
+echo "    Stop               → push when a conversation turn ends (task complete ✅)"
+echo "    UserPromptSubmit   → cancel queued pushes once the user responds"
+echo "    PreToolUse(ask)    → push when a question is asked (reply needed 🔔); other tools clear pending"
 echo ""
-echo "  管理: reasonix plugin show cc-notify-hooks"
-echo "  卸载: reasonix plugin remove cc-notify-hooks --yes"
-echo "  修改配置: 编辑 $CONFIG_FILE"
+echo "  Manage: reasonix plugin show cc-notify-hooks"
+echo "  Uninstall: reasonix plugin remove cc-notify-hooks --yes"
+echo "  Change the configuration: edit $CONFIG_FILE"
 echo "========================================="

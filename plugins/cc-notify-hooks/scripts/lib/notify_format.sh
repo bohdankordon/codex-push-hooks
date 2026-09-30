@@ -28,15 +28,15 @@ notify_long_markdown() {
             [
                 (.summary_short // ""),
                 "",
-                "**项目**: " + (.project // "unknown"),
-                "**事件**: " + (.event_name // "unknown")
+                "**Project**: " + (.project // "unknown"),
+                "**Event**: " + (.event_name // "unknown")
             ]
-            + (if (.tool_name | present) then ["**工具**: " + .tool_name] else [] end)
+            + (if (.tool_name | present) then ["**Tool**: " + .tool_name] else [] end)
             + (if (.event_kind == "user_input" and (.question_count // 0) > 0)
-               then ["**问题数**: " + ((.question_count // 0) | tostring)]
+               then ["**Questions**: " + ((.question_count // 0) | tostring)]
                else [] end)
             + (if (.event_kind == "user_input" and ((.option_labels // []) | length) > 0)
-               then ["**选项**: " + ((.option_labels // []) | join(" / "))]
+               then ["**Options**: " + ((.option_labels // []) | join(" / "))]
                else [] end)
             + (if (session_value | present) then ["**Session**: " + session_value] else [] end)
             + (if (note != "") then ["", note] else [] end)

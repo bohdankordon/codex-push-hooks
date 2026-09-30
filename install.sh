@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks 独立安装入口（路由）
+# cc-notify-hooks standalone install entry point (router)
 #
-# 用法：
-#   bash install.sh           # 交互式选择目标
-#   bash install.sh claude    # 直接安装 Claude Code 分支
-#   bash install.sh codex     # 直接安装 Codex CLI 分支
-#   bash install.sh reasonix  # 直接安装 Reasonix 分支
-#   bash install.sh dsh       # 直接安装 dsh (DeepSeek Harness) 分支
+# Usage:
+#   bash install.sh           # choose a target interactively
+#   bash install.sh claude    # install the Claude Code branch directly
+#   bash install.sh codex     # install the Codex CLI branch directly
+#   bash install.sh reasonix  # install the Reasonix branch directly
+#   bash install.sh dsh       # install the dsh (DeepSeek Harness) branch directly
 #
-# 或绕过路由直接调用子脚本：
+# Or bypass the router and call a branch script directly:
 #   bash install/claude.sh
 #   bash install/codex.sh
 #   bash install/reasonix.sh
@@ -25,23 +25,23 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # ============================================================
-#  解析参数 / 交互式选择
+#  Parse arguments / interactive selection
 # ============================================================
 TARGET="${1:-}"
 
 if [ -z "$TARGET" ]; then
     echo "========================================="
-    echo "  cc-notify-hooks - 独立安装"
+    echo "  cc-notify-hooks - standalone install"
     echo "========================================="
     echo ""
-    echo "  请选择要安装到哪个工具："
+    echo "  Choose which tool to install into:"
     echo ""
     echo "    1) Claude Code  (~/.claude/)"
     echo "    2) Codex CLI    (~/.codex/)"
     echo "    3) Reasonix     (~/.reasonix/)"
     echo "    4) dsh          (~/.dsh/, DeepSeek Harness)"
     echo ""
-    printf "  选择 [1/2/3/4]: "
+    printf "  Choose [1/2/3/4]: "
     read -r choice
 
     case "$choice" in
@@ -49,38 +49,38 @@ if [ -z "$TARGET" ]; then
         2) TARGET="codex" ;;
         3) TARGET="reasonix" ;;
         4) TARGET="dsh" ;;
-        *) echo -e "  ${YELLOW}无效选择，退出${NC}" ; exit 1 ;;
+        *) echo -e "  ${YELLOW}Invalid choice, exiting${NC}" ; exit 1 ;;
     esac
     echo ""
 fi
 
 # ============================================================
-#  分发到子脚本
+#  Dispatch to the branch script
 # ============================================================
 case "$TARGET" in
     claude|claude-code|cc)
-        echo -e "${CYAN}→ 进入 Claude Code 分支${NC}"
+        echo -e "${CYAN}→ entering the Claude Code branch${NC}"
         echo ""
         exec bash "$REPO_ROOT/install/claude.sh"
         ;;
     codex)
-        echo -e "${CYAN}→ 进入 Codex CLI 分支${NC}"
+        echo -e "${CYAN}→ entering the Codex CLI branch${NC}"
         echo ""
         exec bash "$REPO_ROOT/install/codex.sh"
         ;;
     reasonix)
-        echo -e "${CYAN}→ 进入 Reasonix 分支${NC}"
+        echo -e "${CYAN}→ entering the Reasonix branch${NC}"
         echo ""
         exec bash "$REPO_ROOT/install/reasonix.sh"
         ;;
     dsh|deepseek|harness)
-        echo -e "${CYAN}→ 进入 dsh 分支${NC}"
+        echo -e "${CYAN}→ entering the dsh branch${NC}"
         echo ""
         exec bash "$REPO_ROOT/install/dsh.sh"
         ;;
     *)
-        echo "  未知目标: $TARGET"
-        echo "  支持的目标: claude, codex, reasonix, dsh"
+        echo "  Unknown target: $TARGET"
+        echo "  Supported targets: claude, codex, reasonix, dsh"
         exit 1
         ;;
 esac

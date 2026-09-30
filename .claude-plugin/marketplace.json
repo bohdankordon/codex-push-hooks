@@ -5,7 +5,7 @@
     "email": "i@mariozzj.cn"
   },
   "metadata": {
-    "description": "Claude Code 分级推送通知插件，支持 11 个通知渠道"
+    "description": "Tiered push notification plugin for Claude Code with 11 notification channels"
   },
   "plugins": [
     {

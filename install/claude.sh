@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks 独立安装脚本（Claude Code 分支）
-# 部署 scripts/ 到 ~/.claude/hooks/，合并 hooks 配置到 ~/.claude/settings.json
+# cc-notify-hooks standalone install script (Claude Code branch)
+# Deploys scripts/ to ~/.claude/hooks/ and merges the hook configuration into ~/.claude/settings.json
 #
-# 既可被 install.sh 路由调用，也可独立运行：
+# Can be called by the install.sh router or run on its own:
 #   bash install/claude.sh
 
 set -euo pipefail
@@ -25,19 +25,19 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - Claude Code 独立安装"
-echo "  平台: $(uname -s) $(uname -m)"
+echo "  cc-notify-hooks - Claude Code standalone install"
+echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
 
 # ============================================================
-#  [1/4] 检查依赖
+#  [1/4] Check dependencies
 # ============================================================
-echo -e "${YELLOW}[1/4]${NC} 检查依赖..."
+echo -e "${YELLOW}[1/4]${NC} checking dependencies..."
 MISSING_DEP=0
 for cmd in jq curl; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo -e "  ${RED}✗${NC} $cmd 未安装"
+        echo -e "  ${RED}✗${NC} $cmd is not installed"
         MISSING_DEP=1
     else
         echo -e "  ${GREEN}✓${NC} $cmd"
@@ -45,7 +45,7 @@ for cmd in jq curl; do
 done
 if [ "$MISSING_DEP" -eq 1 ]; then
     echo ""
-    echo "  请先安装缺失的依赖："
+    echo "  Install the missing dependencies first:"
     if $IS_MACOS; then
         echo "  macOS:         brew install jq curl"
     else
@@ -56,27 +56,27 @@ if [ "$MISSING_DEP" -eq 1 ]; then
 fi
 
 # ============================================================
-#  [2/4] 交互式配置
+#  [2/4] Interactive configuration
 # ============================================================
-echo -e "${YELLOW}[2/4]${NC} 配置推送渠道..."
+echo -e "${YELLOW}[2/4]${NC} configuring push channels..."
 echo ""
 
-# Channel 定义：name|display_name|default_delay|credential_fields
+# Channel definitions: name|display_name|default_delay|credential_fields
 CHANNEL_DEFS=(
-    "macos|macOS 系统通知|3|"
+    "macos|macOS system notification|3|"
     "bark|Bark (iOS/macOS/Android)|15|key:Bark Key;server:Bark Server [https://api.day.app]"
     "telegram|Telegram Bot|5|bot_token:Bot Token;chat_id:Chat ID"
     "pushover|Pushover|15|app_token:App Token;user_key:User Key"
-    "ntfy|ntfy (开源推送)|15|topic:Topic;server:Server [https://ntfy.sh]"
-    "gotify|Gotify (自建推送)|15|server:Server URL;app_token:App Token"
-    "wechat|企业微信|300|webhook:Webhook URL"
-    "feishu|飞书|300|webhook:Webhook URL"
-    "dingtalk|钉钉|300|webhook:Webhook URL"
+    "ntfy|ntfy (open-source push)|15|topic:Topic;server:Server [https://ntfy.sh]"
+    "gotify|Gotify (self-hosted push)|15|server:Server URL;app_token:App Token"
+    "wechat|WeCom|300|webhook:Webhook URL"
+    "feishu|Feishu|300|webhook:Webhook URL"
+    "dingtalk|DingTalk|300|webhook:Webhook URL"
     "slack|Slack|300|webhook:Webhook URL"
     "discord|Discord|300|webhook:Webhook URL"
 )
 
-# 读取已有配置
+# Read the existing configuration
 _read_json() {
     local key="$1" default="$2"
     if [ -f "$CONFIG_FILE" ]; then
@@ -91,16 +91,16 @@ _read_json() {
 }
 
 if [ -f "$CONFIG_FILE" ]; then
-    echo -e "  ${CYAN}检测到已有配置 ($CONFIG_FILE)${NC}"
+    echo -e "  ${CYAN}Existing configuration detected ($CONFIG_FILE)${NC}"
     echo ""
 fi
 
-# 旧配置迁移
+# Migrate a legacy configuration
 if [ -f "${HOOKS_DIR}/notify.conf" ] && [ ! -f "$CONFIG_FILE" ]; then
-    echo -e "  ${CYAN}检测到 v1 配置 (notify.conf)，将自动迁移${NC}"
-    # 读取旧配置
+    echo -e "  ${CYAN}Detected a v1 configuration (notify.conf); migrating automatically${NC}"
+    # Read the old configuration
     source "${HOOKS_DIR}/notify.conf"
-    # 构建基础 JSON
+    # Build the base JSON
     MIGRATE_JSON=$(jq -n \
         --arg bark_key "${BARK_KEY:-}" \
         --arg bark_server "${BARK_SERVER:-https://api.day.app}" \
@@ -118,12 +118,12 @@ if [ -f "${HOOKS_DIR}/notify.conf" ] && [ ! -f "$CONFIG_FILE" ]; then
         }')
     echo "$MIGRATE_JSON" > "$CONFIG_FILE"
     mv "${HOOKS_DIR}/notify.conf" "${HOOKS_DIR}/notify.conf.bak"
-    echo -e "  ${GREEN}✓${NC} 已迁移，旧配置备份为 notify.conf.bak"
+    echo -e "  ${GREEN}✓${NC} migrated; the old configuration was backed up to notify.conf.bak"
     echo ""
 fi
 
-# 列出 channel 让用户选择
-echo "  可用的通知渠道："
+# List the channels for the user to choose from
+echo "  Available notification channels:"
 echo ""
 idx=1
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -134,20 +134,20 @@ for def in "${CHANNEL_DEFS[@]}"; do
     else
         mark=" "
     fi
-    # macOS 在 macOS 上默认启用
+    # macOS is enabled by default on macOS
     if [ "$name" = "macos" ] && $IS_MACOS && [ "$current_enabled" = "false" ] && [ ! -f "$CONFIG_FILE" ]; then
         mark="${GREEN}✓${NC}"
     fi
-    printf "  %s [%b] %2d. %-30s (默认延迟 %ss)\n" "" "$mark" "$idx" "$display" "$delay"
+    printf "  %s [%b] %2d. %-30s (default delay %ss)\n" "" "$mark" "$idx" "$display" "$delay"
     idx=$((idx + 1))
 done
 echo ""
-echo -e "  ${CYAN}输入编号启用渠道（逗号分隔，如 1,2,7），直接回车保持当前配置${NC}"
+echo -e "  ${CYAN}Enter the numbers of the channels to enable (comma-separated, e.g. 1,2,7); press Enter to keep the current configuration${NC}"
 
-printf "  选择: "
+printf "  Choose: "
 read -r selection
 
-# 解析选择
+# Parse the selection
 declare -A ENABLED_CHANNELS
 if [ -n "$selection" ]; then
     IFS=',' read -ra NUMS <<< "$selection"
@@ -159,7 +159,7 @@ if [ -n "$selection" ]; then
         fi
     done
 else
-    # 保持当前配置
+    # Keep the current configuration
     if [ -f "$CONFIG_FILE" ]; then
         while IFS= read -r name; do
             ENABLED_CHANNELS["$name"]=1
@@ -173,7 +173,7 @@ fi
 
 echo ""
 
-# 为每个启用的 channel 收集凭证
+# Collect credentials for every enabled channel
 declare -A CHANNEL_CONFIGS
 
 for def in "${CHANNEL_DEFS[@]}"; do
@@ -184,17 +184,17 @@ for def in "${CHANNEL_DEFS[@]}"; do
     fi
 
     if [ -z "$fields" ]; then
-        # 无凭证的 channel（macOS）
+        # Channels without credentials (macOS)
         continue
     fi
 
-    echo -e "  ${CYAN}配置 ${display}:${NC}"
+    echo -e "  ${CYAN}Configuring ${display}:${NC}"
 
     IFS=';' read -ra FIELD_DEFS <<< "$fields"
     for fdef in "${FIELD_DEFS[@]}"; do
         IFS=':' read -r fkey fdesc <<< "$fdef"
 
-        # 提取默认值提示
+        # Extract the default-value hint
         default_hint=""
         if [[ "$fdesc" =~ \[(.+)\] ]]; then
             default_hint="${BASH_REMATCH[1]}"
@@ -209,7 +209,7 @@ for def in "${CHANNEL_DEFS[@]}"; do
                 hint="$current"
             fi
         else
-            hint="必填"
+            hint="required"
         fi
 
         printf "    %s [%s]: " "$fdesc" "$hint"
@@ -219,10 +219,10 @@ for def in "${CHANNEL_DEFS[@]}"; do
     echo ""
 done
 
-# 构建 JSON 配置
+# Build the JSON configuration
 CONFIG_JSON='{"channels":{},"rate_limit":10}'
 
-# 读取已有 rate_limit
+# Read the existing rate_limit
 if [ -f "$CONFIG_FILE" ]; then
     old_rate=$(jq -r '.rate_limit // 10' "$CONFIG_FILE")
     CONFIG_JSON=$(echo "$CONFIG_JSON" | jq --argjson rl "$old_rate" '.rate_limit = $rl')
@@ -234,27 +234,27 @@ for def in "${CHANNEL_DEFS[@]}"; do
     enabled="false"
     [ "${ENABLED_CHANNELS[$name]:-}" = "1" ] && enabled="true"
 
-    # 构建 channel 对象
+    # Build the channel object
     ch_json=$(jq -n --argjson enabled "$enabled" --argjson delay "$delay" '{enabled: $enabled, delay: $delay}')
 
-    # macOS 特殊字段
+    # macOS-specific fields
     if [ "$name" = "macos" ]; then
         ch_json=$(echo "$ch_json" | jq '. + {sound: "Glass", events: ["notification"]}')
     fi
 
-    # 添加凭证字段
+    # Add the credential fields
     if [ -n "$fields" ]; then
         IFS=';' read -ra FIELD_DEFS <<< "$fields"
         for fdef in "${FIELD_DEFS[@]}"; do
             IFS=':' read -r fkey fdesc <<< "$fdef"
             val="${CHANNEL_CONFIGS["${name}.${fkey}"]:-}"
 
-            # 尝试从已有配置读取
+            # Try to read from the existing configuration
             if [ -z "$val" ] && [ -f "$CONFIG_FILE" ]; then
                 val=$(jq -r ".channels.\"${name}\".\"${fkey}\" // empty" "$CONFIG_FILE" 2>/dev/null) || true
             fi
 
-            # 提取方括号中的默认值
+            # Extract the default value in square brackets
             if [ -z "$val" ] && [[ "$fdesc" =~ \[(.+)\] ]]; then
                 val="${BASH_REMATCH[1]}"
             fi
@@ -268,48 +268,48 @@ for def in "${CHANNEL_DEFS[@]}"; do
     CONFIG_JSON=$(echo "$CONFIG_JSON" | jq --argjson ch "$ch_json" --arg name "$name" '.channels[$name] = $ch')
 done
 
-# 写入配置文件
+# Write the configuration file
 mkdir -p "$HOOKS_DIR"
 echo "$CONFIG_JSON" | jq '.' > "$CONFIG_FILE"
-echo -e "  ${GREEN}✓${NC} 配置已写入 $CONFIG_FILE"
+echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 
 # ============================================================
-#  [3/4] 安装脚本
+#  [3/4] Install the scripts
 # ============================================================
-echo -e "${YELLOW}[3/4]${NC} 安装脚本..."
+echo -e "${YELLOW}[3/4]${NC} installing scripts..."
 mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels"
 cp "$REPO_ROOT/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
 cp "$REPO_ROOT/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
 cp "$REPO_ROOT/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
 chmod +x "$SCRIPTS_DIR/notify.sh" "$SCRIPTS_DIR/clear_pending.sh" "$SCRIPTS_DIR/channels/"*.sh
-echo -e "  ${GREEN}✓${NC} 脚本已复制到 $SCRIPTS_DIR"
+echo -e "  ${GREEN}✓${NC} scripts copied to $SCRIPTS_DIR"
 
 # ============================================================
-#  [4/4] 配置 hooks
+#  [4/4] Configure hooks
 # ============================================================
-echo -e "${YELLOW}[4/4]${NC} 配置 hooks..."
+echo -e "${YELLOW}[4/4]${NC} configuring hooks..."
 
-# 生成 hooks JSON，路径替换为实际安装路径
+# Generate the hooks JSON, replacing paths with the actual install paths
 HOOKS_JSON=$(cat "$REPO_ROOT/hooks/hooks.json" | sed "s|\\\${CLAUDE_PLUGIN_ROOT}/scripts|${SCRIPTS_DIR}|g")
 
 if [ -f "$SETTINGS_FILE" ]; then
     BACKUP="${SETTINGS_FILE}.backup.$(date +%Y%m%d%H%M%S)"
     cp "$SETTINGS_FILE" "$BACKUP"
-    echo "  已备份原配置到: $BACKUP"
+    echo "  backed up the original configuration to: $BACKUP"
 
     jq -s '.[0] * {hooks: .[1].hooks}' "$SETTINGS_FILE" <(echo "$HOOKS_JSON") \
         > "${SETTINGS_FILE}.tmp" \
         && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
 
-    echo -e "  ${GREEN}✓${NC} hooks 已合并到 settings.json"
+    echo -e "  ${GREEN}✓${NC} hooks merged into settings.json"
 else
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     echo "$HOOKS_JSON" > "$SETTINGS_FILE"
-    echo -e "  ${GREEN}✓${NC} 已创建 settings.json"
+    echo -e "  ${GREEN}✓${NC} settings.json created"
 fi
 
 # ============================================================
-#  验证
+#  Verification
 # ============================================================
 echo ""
 ENABLED_COUNT=0
@@ -318,26 +318,26 @@ for name in "${!ENABLED_CHANNELS[@]}"; do
 done
 
 if [ "$ENABLED_COUNT" -eq 0 ]; then
-    echo -e "  ${YELLOW}⚠${NC} 未启用任何推送渠道"
+    echo -e "  ${YELLOW}⚠${NC} no push channel is enabled"
 else
-    echo "  已启用的渠道："
+    echo "  Enabled channels:"
     for def in "${CHANNEL_DEFS[@]}"; do
         IFS='|' read -r name display delay _ <<< "$def"
         if [ "${ENABLED_CHANNELS[$name]:-}" = "1" ]; then
-            echo -e "  ${GREEN}✓${NC} ${display} (延迟 ${delay}s)"
+            echo -e "  ${GREEN}✓${NC} ${display} (delay ${delay}s)"
         fi
     done
 fi
 
 echo ""
 echo "========================================="
-echo -e "  ${GREEN}✅ 安装完成！${NC}"
+echo -e "  ${GREEN}✅ Installation complete!${NC}"
 echo ""
-echo "  下一步:"
-echo "  1. 测试: bash $REPO_ROOT/test_notify.sh"
-echo "  2. 重启 Claude Code 使 hooks 生效"
-echo "  3. 调试: tail -f /tmp/claude-hooks-debug.log"
+echo "  Next steps:"
+echo "  1. Test: bash $REPO_ROOT/test_notify.sh"
+echo "  2. Restart Claude Code so the hooks take effect"
+echo "  3. Debug: tail -f /tmp/claude-hooks-debug.log"
 echo ""
-echo "  修改配置: 编辑 $CONFIG_FILE"
-echo "  插件模式: claude --plugin-dir $REPO_ROOT/plugins/cc-notify-hooks"
+echo "  Change the configuration: edit $CONFIG_FILE"
+echo "  Plugin mode: claude --plugin-dir $REPO_ROOT/plugins/cc-notify-hooks"
 echo "========================================="

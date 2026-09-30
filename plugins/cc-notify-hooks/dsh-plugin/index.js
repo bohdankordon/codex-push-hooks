@@ -3,12 +3,12 @@
  *
  * A zero-dependency host plugin that reuses the cc-notify-hooks bash scripts:
  *
- *   approval/request      → notify.sh notification   (等待确认 🔔，永远代理 next())
- *   agent/turn-stopping   → notify.sh stop            (任务完成 ✅)
- *   agent/pre-step        → clear_pending.sh          (用户响应后取消排队推送 / /exit 标记)
- *   tools/pre-execute     → pre_tool_use.sh           (ask_user_question 触发等待回复通知，
- *                                                       其他工具清理 pending)
- *   tools/post-execute    → clear_pending.sh user_input (提问返回后清理)
+ *   approval/request      → notify.sh notification   (approval needed 🔔, always proxies next())
+ *   agent/turn-stopping   → notify.sh stop            (task complete ✅)
+ *   agent/pre-step        → clear_pending.sh          (cancel queued pushes on user response / /exit marker)
+ *   tools/pre-execute     → pre_tool_use.sh           (ask_user_question triggers a waiting-for-reply
+ *                                                        notification, other tools clear pending)
+ *   tools/post-execute    → clear_pending.sh user_input (clears after the question returns)
  *
  * Configuration (plugin `config:` in ~/.dsh/cordis.patch.yml):
  *   scriptsDir  — absolute path of the cc-notify-hooks scripts directory (required)
@@ -112,7 +112,7 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  // Pending approval → "需要确认" push. Always delegate: never answer.
+  // Pending approval → "approval needed" push. Always delegate: never answer.
   ctx.on('approval/request', (request, next) => {
     try {
       notify({
@@ -129,7 +129,7 @@ export function apply(ctx, config = {}) {
     return next()
   })
 
-  // Natural turn end → "任务完成" push.
+  // Natural turn end → "task complete" push.
   ctx.on('agent/turn-stopping', (payload) => {
     try {
       const agent = payload?.agent

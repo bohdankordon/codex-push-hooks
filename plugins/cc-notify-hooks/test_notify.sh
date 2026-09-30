@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# 测试脚本 - 验证各渠道推送连通性
+# Test script - verify push connectivity for each channel
 #
-# 用法：
-#   bash test_notify.sh              # 测试所有已启用 channel
-#   bash test_notify.sh bark         # 测试单个 channel
-#   bash test_notify.sh hook         # 模拟完整 hook 流程（Claude Code 字段格式）
-#   bash test_notify.sh codex        # 模拟 Codex CLI 的 PermissionRequest 事件（prompt 字段）
-#   bash test_notify.sh list         # 列出已启用 channel
-#   bash test_notify.sh codex-plugin-hooks  # 验证 Codex 插件 hook 不依赖会话 cwd
-#   bash test_notify.sh user-input    # 验证 request_user_input dispatcher 与模板
-#   bash test_notify.sh state         # 验证 session scoped 状态、去重与清理
-#   bash test_notify.sh render        # 验证通知标题和正文模板
-#   bash test_notify.sh agents        # 验证 Reasonix / dsh 的 agent 识别与事件字段
+# Usage:
+#   bash test_notify.sh              # test every enabled channel
+#   bash test_notify.sh bark         # test a single channel
+#   bash test_notify.sh hook         # simulate the full hook flow (Claude Code field format)
+#   bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event (prompt field)
+#   bash test_notify.sh list         # list the enabled channels
+#   bash test_notify.sh codex-plugin-hooks  # verify Codex plugin hooks do not depend on the session cwd
+#   bash test_notify.sh user-input    # verify the request_user_input dispatcher and templates
+#   bash test_notify.sh state         # verify session-scoped state, deduplication, and clearing
+#   bash test_notify.sh render        # verify the notification title and body templates
+#   bash test_notify.sh agents        # verify Reasonix / dsh agent detection and event fields
 
 set -euo pipefail
 
@@ -25,7 +25,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# 查找配置文件（顺序与 scripts/notify.sh 保持一致）
+# Find the configuration file (same order as scripts/notify.sh)
 CONFIG_FILE=""
 CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
 if [ -n "${CC_NOTIFY_CONFIG:-}" ] && [ -f "${CC_NOTIFY_CONFIG}" ]; then
@@ -41,7 +41,7 @@ elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
 fi
 
 echo "========================================="
-echo "  cc-notify-hooks - 连通性测试"
+echo "  cc-notify-hooks - connectivity tests"
 echo "========================================="
 echo ""
 
@@ -52,67 +52,67 @@ if [ -z "$CONFIG_FILE" ] &&
    [ "$COMMAND" != "user-input" ] &&
    [ "$COMMAND" != "state" ] &&
    [ "$COMMAND" != "render" ]; then
-    echo -e "${RED}未找到配置文件${NC}"
-    echo "  请先运行 bash install.sh 或复制 config/notify.example.json 到"
+    echo -e "${RED}No configuration file found${NC}"
+    echo "  Run bash install.sh first, or copy config/notify.example.json to"
     echo "  ~/.claude/hooks/notify.json"
     exit 1
 fi
 
 if [ -n "$CONFIG_FILE" ]; then
-    echo -e "  配置文件: ${CYAN}${CONFIG_FILE}${NC}"
+    echo -e "  Config file: ${CYAN}${CONFIG_FILE}${NC}"
     echo ""
 fi
 
-# 测试单个 channel
+# Test a single channel
 test_channel() {
     local name="$1"
     local ch_file="${CHANNELS_DIR}/${name}.sh"
 
     if [ ! -f "$ch_file" ]; then
-        echo -e "${RED}[${name}]${NC} ❌ channel 脚本不存在: ${ch_file}"
+        echo -e "${RED}[${name}]${NC} ❌ channel script not found: ${ch_file}"
         return 1
     fi
 
     local enabled
     enabled=$(jq -r ".channels.\"${name}\".enabled // false" "$CONFIG_FILE")
     if [ "$enabled" != "true" ]; then
-        echo -e "${YELLOW}[${name}]${NC} ⏭ 未启用，跳过"
+        echo -e "${YELLOW}[${name}]${NC} ⏭ not enabled, skipping"
         return 0
     fi
 
     local config
     config=$(jq -c ".channels.\"${name}\"" "$CONFIG_FILE")
 
-    echo -e "${YELLOW}[${name}]${NC} 发送测试通知..."
+    echo -e "${YELLOW}[${name}]${NC} sending a test notification..."
 
-    # macOS 特殊处理
+    # macOS is handled specially
     if [ "$name" = "macos" ]; then
         if [[ "$(uname -s)" != "Darwin" ]]; then
-            echo -e "${YELLOW}[${name}]${NC} ⏭ 非 macOS 系统，跳过"
+            echo -e "${YELLOW}[${name}]${NC} ⏭ not macOS, skipping"
             return 0
         fi
         source "$ch_file"
-        send_macos "cc-notify-hooks 测试" "推送连通性测试" "$config"
-        echo -e "${GREEN}[${name}]${NC} ✅ 已发送，请检查系统通知"
+        send_macos "cc-notify-hooks test" "Push notification connectivity test" "$config"
+        echo -e "${GREEN}[${name}]${NC} ✅ sent, check your system notifications"
         return 0
     fi
 
-    # 通用 channel：通过 curl 返回值判断
+    # Generic channel: rely on the curl return value
     source "$ch_file"
 
-    # 临时覆盖 curl，捕获 HTTP 状态码
+    # Temporarily override curl to capture the HTTP status code
     local result
     result=$(
-        # 替换 send 函数中的 curl，让它输出状态码
+        # Replace curl inside the send function so it emits the status code
         _original_curl=$(which curl)
         send_${name} "cc-notify-hooks Test" "Push notification connectivity test" "$config" 2>&1
         echo "SEND_DONE"
     )
 
-    # 简单判断：函数执行完成即视为成功（curl 错误被 || true 吞掉）
-    echo -e "${GREEN}[${name}]${NC} ✅ 已发送，请检查对应平台是否收到"
+    # Simple check: a completed function counts as success (curl errors are swallowed by || true)
+    echo -e "${GREEN}[${name}]${NC} ✅ sent, check whether the target platform received it"
 
-    # 显示 channel 详情
+    # Show channel details
     case "$name" in
         bark)
             local key
@@ -148,9 +148,9 @@ test_channel() {
     esac
 }
 
-# 列出所有 channel 状态
+# List the status of every channel
 list_channels() {
-    echo "  Channel 状态："
+    echo "  Channel status:"
     echo ""
     printf "  %-15s %-10s %-10s %s\n" "CHANNEL" "STATUS" "DELAY" "EVENTS"
     printf "  %-15s %-10s %-10s %s\n" "-------" "------" "-----" "------"
@@ -171,12 +171,12 @@ list_channels() {
     done
 }
 
-# 模拟 hook 流程
+# Simulate the hook flow
 test_hook_flow() {
-    echo -e "${YELLOW}[模拟 Hook]${NC} 模拟完整分级推送流程..."
+    echo -e "${YELLOW}[Mock Hook]${NC} simulating the full tiered push flow..."
     echo ""
 
-    # 显示将要触发的 channel
+    # Show the channels that will fire
     list_channels
     echo ""
 
@@ -184,38 +184,38 @@ test_hook_flow() {
 
     echo "$MOCK_JSON" | bash "${SCRIPT_DIR}/scripts/notify.sh" notification
 
-    echo -e "${GREEN}[模拟 Hook]${NC} ✅ 后台推送进程已启动"
+    echo -e "${GREEN}[Mock Hook]${NC} ✅ background push process started"
     echo ""
-    echo "  已启用的 channel 将按 delay 顺序依次推送"
-    echo "  模拟取消推送: bash ${SCRIPT_DIR}/scripts/clear_pending.sh < /dev/null"
+    echo "  Enabled channels will push in delay order"
+    echo "  Simulate a cancellation: bash ${SCRIPT_DIR}/scripts/clear_pending.sh < /dev/null"
 }
 
-# 模拟 Codex CLI hook 流程
+# Simulate the Codex CLI hook flow
 test_codex_flow() {
-    echo -e "${YELLOW}[模拟 Codex Hook]${NC} 模拟 Codex PermissionRequest 事件..."
-    echo "  字段差异：Codex 用 prompt 字段而非 message，事件名 PermissionRequest"
+    echo -e "${YELLOW}[Mock Codex Hook]${NC} simulating a Codex PermissionRequest event..."
+    echo "  Field difference: Codex uses the prompt field instead of message, and the event name is PermissionRequest"
     echo ""
 
     list_channels
     echo ""
 
-    # Codex stdin 格式：用 prompt 字段而非 message，hook_event_name = PermissionRequest
-    MOCK_JSON='{"hook_event_name":"PermissionRequest","prompt":"Codex 请求执行 Bash 命令","cwd":"'"$PWD"'","session_id":"codex-test-session","model":"gpt-5.5"}'
+    # Codex stdin format: the prompt field instead of message, with hook_event_name = PermissionRequest
+    MOCK_JSON='{"hook_event_name":"PermissionRequest","prompt":"Codex requests to run a Bash command","cwd":"'"$PWD"'","session_id":"codex-test-session","model":"gpt-5.5"}'
 
     echo "$MOCK_JSON" | bash "${SCRIPT_DIR}/scripts/notify.sh" notification
 
-    echo -e "${GREEN}[模拟 Codex Hook]${NC} ✅ 后台推送进程已启动"
+    echo -e "${GREEN}[Mock Codex Hook]${NC} ✅ background push process started"
     echo ""
-    echo "  已启用的 channel 将按 delay 顺序依次推送"
-    echo "  模拟取消推送（Codex UserPromptSubmit）："
+    echo "  Enabled channels will push in delay order"
+    echo "  Simulate a cancellation (Codex UserPromptSubmit):"
     echo "    echo '{\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"hello\"}' | bash ${SCRIPT_DIR}/scripts/clear_pending.sh"
 }
 
-# 验证 Codex 插件打包 hook 能从任意会话 cwd 使用 runtime 路径变量
+# Verify that the packaged Codex plugin hooks can use the runtime path variables from any session cwd
 test_codex_plugin_hooks() {
     (
         set -euo pipefail
-        echo -e "${YELLOW}[Codex Plugin Hooks]${NC} 验证 PLUGIN_ROOT、PLUGIN_DATA 与自定义 CODEX_HOME..."
+        echo -e "${YELLOW}[Codex Plugin Hooks]${NC} verifying PLUGIN_ROOT, PLUGIN_DATA, and a custom CODEX_HOME..."
 
         local tmp_base tmp_root tmp_home plugin_data custom_codex_home
         local stop_cmd clear_cmd pre_cmd post_cmd out
@@ -239,12 +239,12 @@ test_codex_plugin_hooks() {
             | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
                 bash -c "$stop_cmd"
 
-        out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"codex-plugin-test","turn_id":"turn-plugin","tool_name":"request_user_input","tool_use_id":"call-plugin","tool_input":{"questions":[{"header":"确认","question":"是否继续？","options":[{"label":"继续"},{"label":"取消"}]}]},"cwd":"'"$tmp_base"'"}' \
+        out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"codex-plugin-test","turn_id":"turn-plugin","tool_name":"request_user_input","tool_use_id":"call-plugin","tool_input":{"questions":[{"header":"Confirm","question":"Continue?","options":[{"label":"Continue"},{"label":"Cancel"}]}]},"cwd":"'"$tmp_base"'"}' \
             | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
                 CC_NOTIFY_RENDER_ONLY=1 bash -c "$pre_cmd")
 
         if [ "$(printf '%s' "$out" | jq -r '.event_kind')" != "user_input" ]; then
-            echo -e "${RED}[Codex Plugin Hooks]${NC} PreToolUse 没有通过 PLUGIN_ROOT 执行 dispatcher"
+            echo -e "${RED}[Codex Plugin Hooks]${NC} PreToolUse did not run the dispatcher through PLUGIN_ROOT"
             return 1
         fi
 
@@ -253,7 +253,7 @@ test_codex_plugin_hooks() {
             | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" PLUGIN_ROOT="$SCRIPT_DIR" PLUGIN_DATA="$plugin_data" \
                 bash -c "$post_cmd"
         if compgen -G "${plugin_data}/state/pending_codex-plugin-test_user_input_*" >/dev/null; then
-            echo -e "${RED}[Codex Plugin Hooks]${NC} PostToolUse 没有清理 user_input pending"
+            echo -e "${RED}[Codex Plugin Hooks]${NC} PostToolUse did not clear the user_input pending marker"
             return 1
         fi
 
@@ -262,7 +262,7 @@ test_codex_plugin_hooks() {
                 bash -c "$clear_cmd"
 
         if [ ! -f "${plugin_data}/state/last_codex-plugin-test_stop" ]; then
-            echo -e "${RED}[Codex Plugin Hooks]${NC} Stop hook 没有写入 PLUGIN_DATA state"
+            echo -e "${RED}[Codex Plugin Hooks]${NC} the Stop hook did not write to the PLUGIN_DATA state directory"
             return 1
         fi
 
@@ -270,18 +270,18 @@ test_codex_plugin_hooks() {
             | HOME="$tmp_home" CODEX_HOME="$custom_codex_home" CC_NOTIFY_STATE_DIR="${tmp_root}/standalone-state" \
                 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
         if [ ! -f "${tmp_root}/standalone-state/last_standalone-test_stop" ]; then
-            echo -e "${RED}[Codex Plugin Hooks]${NC} notify.sh 没有读取自定义 CODEX_HOME 配置"
+            echo -e "${RED}[Codex Plugin Hooks]${NC} notify.sh did not read the configuration from the custom CODEX_HOME"
             return 1
         fi
 
-        echo -e "${GREEN}[Codex Plugin Hooks]${NC} ✅ runtime 路径与自定义 CODEX_HOME 符合预期"
+        echo -e "${GREEN}[Codex Plugin Hooks]${NC} ✅ runtime paths and the custom CODEX_HOME behave as expected"
     )
 }
 
 test_user_input_flow() {
     (
         set -euo pipefail
-        echo -e "${YELLOW}[request_user_input]${NC} 验证 dispatcher、模板与安静降级..."
+        echo -e "${YELLOW}[request_user_input]${NC} verifying the dispatcher, templates, and quiet degradation..."
 
         local tmp_base tmp_root state_dir out markdown fallback_out empty_out invalid_out no_jq_out
         local capture_file feishu_payload discord_payload
@@ -292,26 +292,26 @@ test_user_input_flow() {
         state_dir="${tmp_root}/state"
         mkdir -p "$state_dir"
 
-        out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-user-input","turn_id":"turn-user-input","tool_name":"request_user_input","tool_use_id":"call-user-input","tool_input":{"questions":[{"header":"范围","question":"这次修复覆盖什么？","options":[{"label":"完整修复"},{"label":"最小补丁"}]},{"header":"通知","question":"使用哪个渠道？","options":[{"label":"macOS"},{"label":"Bark"}]}]},"cwd":"/tmp/demo-project","model":"gpt-5.5"}' \
+        out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-user-input","turn_id":"turn-user-input","tool_name":"request_user_input","tool_use_id":"call-user-input","tool_input":{"questions":[{"header":"Scope","question":"What does this fix cover?","options":[{"label":"Full fix"},{"label":"Minimal patch"}]},{"header":"Notification","question":"Which channel should be used?","options":[{"label":"macOS"},{"label":"Bark"}]}]},"cwd":"/tmp/demo-project","model":"gpt-5.5"}' \
             | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
 
-        if [ "$(printf '%s' "$out" | jq -r '.title')" != "Codex · 需要回复 🔔" ] ||
-           [ "$(printf '%s' "$out" | jq -r '.summary_short')" != "范围" ] ||
+        if [ "$(printf '%s' "$out" | jq -r '.title')" != "Codex · Reply needed 🔔" ] ||
+           [ "$(printf '%s' "$out" | jq -r '.summary_short')" != "Scope" ] ||
            [ "$(printf '%s' "$out" | jq -r '.event_kind')" != "user_input" ] ||
            [ "$(printf '%s' "$out" | jq -r '.question_count')" != "2" ] ||
-           [ "$(printf '%s' "$out" | jq -r '.option_labels | join(",")')" != "完整修复,最小补丁" ] ||
-           [[ "$(printf '%s' "$out" | jq -r '.body')" != *"2 个问题 · Session session-"* ]]; then
-            echo -e "${RED}[request_user_input]${NC} 结构化通知字段错误: $out"
+           [ "$(printf '%s' "$out" | jq -r '.option_labels | join(",")')" != "Full fix,Minimal patch" ] ||
+           [[ "$(printf '%s' "$out" | jq -r '.body')" != *"2 questions · Session session-"* ]]; then
+            echo -e "${RED}[request_user_input]${NC} structured notification fields are wrong: $out"
             return 1
         fi
 
         source "${SCRIPT_DIR}/scripts/lib/notify_format.sh"
         markdown=$(notify_long_markdown "$out")
-        if [[ "$markdown" != *"**问题数**: 2"* ]] ||
-           [[ "$markdown" != *"**选项**: 完整修复 / 最小补丁"* ]] ||
+        if [[ "$markdown" != *"**Questions**: 2"* ]] ||
+           [[ "$markdown" != *"**Options**: Full fix / Minimal patch"* ]] ||
            [[ "$markdown" != *"**Session**: session-user-input"* ]] ||
            [[ "$markdown" != *"/tmp/demo-project"* ]]; then
-            echo -e "${RED}[request_user_input]${NC} 长通知字段错误: $markdown"
+            echo -e "${RED}[request_user_input]${NC} fallback notification fields are wrong: $markdown"
             return 1
         fi
 
@@ -333,11 +333,11 @@ test_user_input_flow() {
         feishu_payload=$(cat "$capture_file")
         if ! printf '%s' "$feishu_payload" | jq -e '
             .card.elements[1].fields as $fields
-            | any($fields[]; .text.content == "**问题数**\n2")
-              and any($fields[]; .text.content == "**选项**\n完整修复 / 最小补丁")
+            | any($fields[]; .text.content == "**Questions**\n2")
+              and any($fields[]; .text.content == "**Options**\nFull fix / Minimal patch")
               and any($fields[]; .text.content == "**Session**\nsession-user-input")
         ' >/dev/null; then
-            echo -e "${RED}[request_user_input]${NC} 飞书卡片缺少结构化问题字段: $feishu_payload"
+            echo -e "${RED}[request_user_input]${NC} the Feishu card is missing structured question fields: $feishu_payload"
             return 1
         fi
 
@@ -346,19 +346,19 @@ test_user_input_flow() {
         discord_payload=$(cat "$capture_file")
         if ! printf '%s' "$discord_payload" | jq -e '
             .embeds[0].fields as $fields
-            | any($fields[]; .name == "问题数" and .value == "2")
-              and any($fields[]; .name == "选项" and .value == "完整修复 / 最小补丁")
+            | any($fields[]; .name == "Questions" and .value == "2")
+              and any($fields[]; .name == "Options" and .value == "Full fix / Minimal patch")
               and any($fields[]; .name == "Session" and .value == "session-user-input")
         ' >/dev/null; then
-            echo -e "${RED}[request_user_input]${NC} Discord embed 缺少结构化问题字段: $discord_payload"
+            echo -e "${RED}[request_user_input]${NC} the Discord embed is missing structured question fields: $discord_payload"
             return 1
         fi
 
-        fallback_out=$(printf '%s' '{"hook_event_name":"PreToolUse","turn_id":"turn-only-123","tool_name":"request_user_input","tool_use_id":"call-fallback","tool_input":{"questions":[{"header":"","question":"请选择修复范围","options":[{"label":"完整"},{"label":"最小"}]}]},"cwd":"/tmp/demo-project"}' \
+        fallback_out=$(printf '%s' '{"hook_event_name":"PreToolUse","turn_id":"turn-only-123","tool_name":"request_user_input","tool_use_id":"call-fallback","tool_input":{"questions":[{"header":"","question":"Choose the fix scope","options":[{"label":"Full"},{"label":"Minimal"}]}]},"cwd":"/tmp/demo-project"}' \
             | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
-        if [ "$(printf '%s' "$fallback_out" | jq -r '.summary_short')" != "请选择修复范围" ] ||
+        if [ "$(printf '%s' "$fallback_out" | jq -r '.summary_short')" != "Choose the fix scope" ] ||
            [ "$(printf '%s' "$fallback_out" | jq -r '.session_short')" != "turn-onl" ]; then
-            echo -e "${RED}[request_user_input]${NC} question/turn_id fallback 错误: $fallback_out"
+            echo -e "${RED}[request_user_input]${NC} question/turn_id fallback is wrong: $fallback_out"
             return 1
         fi
 
@@ -369,7 +369,7 @@ test_user_input_flow() {
             | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh"
         if compgen -G "${state_dir}/pending_session-a_*" >/dev/null ||
            ! compgen -G "${state_dir}/pending_session-b_*" >/dev/null; then
-            echo -e "${RED}[request_user_input]${NC} 普通 PreToolUse 没有按 session 清理"
+            echo -e "${RED}[request_user_input]${NC} a plain PreToolUse did not clear per session"
             return 1
         fi
 
@@ -387,11 +387,11 @@ test_user_input_flow() {
             | PATH="$minimal_bin" "$bash_bin" "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
 
         if [ -n "$empty_out" ] || [ -n "$invalid_out" ] || [ -n "$no_jq_out" ]; then
-            echo -e "${RED}[request_user_input]${NC} 空问题、非法 JSON 或缺少 jq 时不应输出"
+            echo -e "${RED}[request_user_input]${NC} empty questions, invalid JSON, or a missing jq must produce no output"
             return 1
         fi
 
-        echo -e "${GREEN}[request_user_input]${NC} ✅ dispatcher 与通知模板符合预期"
+        echo -e "${GREEN}[request_user_input]${NC} ✅ dispatcher and notification templates behave as expected"
     )
 }
 
@@ -399,7 +399,7 @@ test_session_state() {
     (
         set -euo pipefail
         shopt -s nullglob
-        echo -e "${YELLOW}[Session State]${NC} 验证 pending、rate-limit、去重与 /exit 隔离..."
+        echo -e "${YELLOW}[Session State]${NC} verifying pending, rate limit, deduplication, and /exit isolation..."
 
         local tmp_base tmp_root state_dir config_file event_a event_a_new event_b
         local first_pending repeated_pending new_pending
@@ -419,14 +419,14 @@ test_session_state() {
             | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
                 bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
         first_pending=$(compgen -G "${state_dir}/pending_session-a_user_input_*" | head -n 1)
-        [ -n "$first_pending" ] || { echo -e "${RED}[Session State]${NC} session A 未创建 pending"; return 1; }
+        [ -n "$first_pending" ] || { echo -e "${RED}[Session State]${NC} session A did not create a pending marker"; return 1; }
 
         printf '%s' "$event_a" \
             | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
                 bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
         repeated_pending=$(compgen -G "${state_dir}/pending_session-a_user_input_*" | head -n 1)
         if [ "$repeated_pending" != "$first_pending" ]; then
-            echo -e "${RED}[Session State]${NC} 相同 tool_use_id 没有去重"
+            echo -e "${RED}[Session State]${NC} the same tool_use_id was not deduplicated"
             return 1
         fi
 
@@ -435,7 +435,7 @@ test_session_state() {
                 bash "${SCRIPT_DIR}/scripts/notify.sh" notification user_input
         new_pending=$(compgen -G "${state_dir}/pending_session-a_user_input_*" | head -n 1)
         if [ "$new_pending" = "$first_pending" ]; then
-            echo -e "${RED}[Session State]${NC} 不同 tool_use_id 被十秒限流吞掉"
+            echo -e "${RED}[Session State]${NC} a different tool_use_id was swallowed by the ten-second rate limit"
             return 1
         fi
 
@@ -446,7 +446,7 @@ test_session_state() {
            ! compgen -G "${state_dir}/pending_session-b_user_input_*" >/dev/null ||
            [ ! -f "${state_dir}/last_session-a_user_input" ] ||
            [ ! -f "${state_dir}/last_session-b_user_input" ]; then
-            echo -e "${RED}[Session State]${NC} 两个 session 的 pending/rate 状态没有隔离"
+            echo -e "${RED}[Session State]${NC} pending/rate state is not isolated between the two sessions"
             return 1
         fi
 
@@ -454,37 +454,37 @@ test_session_state() {
             | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/clear_pending.sh" user_input
         if compgen -G "${state_dir}/pending_session-a_user_input_*" >/dev/null ||
            ! compgen -G "${state_dir}/pending_session-b_user_input_*" >/dev/null; then
-            echo -e "${RED}[Session State]${NC} PostToolUse 清理影响了其他 session"
+            echo -e "${RED}[Session State]${NC} the PostToolUse clear affected another session"
             return 1
         fi
 
         printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"session-a","prompt":"/exit"}' \
             | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/clear_pending.sh"
-        [ -f "${state_dir}/exiting_session-a" ] || { echo -e "${RED}[Session State]${NC} /exit 未按 session 记录"; return 1; }
+        [ -f "${state_dir}/exiting_session-a" ] || { echo -e "${RED}[Session State]${NC} /exit was not recorded per session"; return 1; }
 
         printf '%s' '{"hook_event_name":"Stop","session_id":"session-b","cwd":"/tmp/project-b"}' \
             | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
                 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
-        [ -f "${state_dir}/last_session-b_stop" ] || { echo -e "${RED}[Session State]${NC} session A 的 /exit 错误抑制了 session B"; return 1; }
+        [ -f "${state_dir}/last_session-b_stop" ] || { echo -e "${RED}[Session State]${NC} session A's /exit wrongly suppressed session B"; return 1; }
 
         printf '%s' '{"hook_event_name":"Stop","session_id":"session-a","cwd":"/tmp/project-a"}' \
             | CC_NOTIFY_CONFIG="$config_file" CC_NOTIFY_STATE_DIR="$state_dir" \
                 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
         if [ -f "${state_dir}/exiting_session-a" ] || [ -f "${state_dir}/last_session-a_stop" ]; then
-            echo -e "${RED}[Session State]${NC} /exit Stop 抑制行为错误"
+            echo -e "${RED}[Session State]${NC} the /exit Stop suppression behavior is wrong"
             return 1
         fi
 
-        echo -e "${GREEN}[Session State]${NC} ✅ session 状态、精确去重与清理符合预期"
+        echo -e "${GREEN}[Session State]${NC} ✅ session state, precise deduplication, and clearing behave as expected"
     )
 }
 
 test_render_templates() {
-    echo -e "${YELLOW}[模板渲染]${NC} 验证短通知和结构化长通知字段..."
+    echo -e "${YELLOW}[Template rendering]${NC} verifying short-delay and structured fallback notification fields..."
 
     local out title body summary event_name tool_name status_label
     out=$(
-        printf '%s' '{"hook_event_name":"Stop","session_id":"render-codex","cwd":"/tmp/demo-project","model":"gpt-5.5","last_assistant_message":"已完成训练状态检查\n\n后续细节不会进通知。"}' \
+        printf '%s' '{"hook_event_name":"Stop","session_id":"render-codex","cwd":"/tmp/demo-project","model":"gpt-5.5","last_assistant_message":"Training status check finished\n\nFurther details stay out of the notification."}' \
             | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
     )
     title=$(echo "$out" | jq -r '.title')
@@ -493,40 +493,41 @@ test_render_templates() {
     event_name=$(echo "$out" | jq -r '.event_name')
     tool_name=$(echo "$out" | jq -r '.tool_name')
 
-    if [ "$title" != "Codex · 任务完成 ✅" ]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Stop 标题错误: $title"
+    if [ "$title" != "Codex · Task complete ✅" ]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Stop title is wrong: $title"
         return 1
     fi
-    if [[ "$body" != "[demo-project] 已完成训练状态检查"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Stop 正文错误: $body"
+    if [[ "$body" != "[demo-project] Training status check finished"* ]]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Stop body is wrong: $body"
         return 1
     fi
-    if [ "$summary" != "已完成训练状态检查" ] || [ "$event_name" != "Stop" ] || [ -n "$tool_name" ]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Stop 结构化字段错误: $out"
+    if [ "$summary" != "Training status check finished" ] || [ "$event_name" != "Stop" ] || [ -n "$tool_name" ]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Stop structured fields are wrong: $out"
         return 1
     fi
-    if [[ "$body" == *"Claude 已完成工作"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Stop 仍包含旧文案: $body"
+    # Guard against the deprecated v1 copy that hard-coded Claude into every body.
+    if [[ "$body" == *"Claude has finished the work"* ]]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Stop still contains the legacy copy: $body"
         return 1
     fi
     if [[ "$body" == *"gpt-5.5"* ]] || [[ "$body" == *"on-request"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} 短通知正文不应包含模型或权限: $body"
+        echo -e "${RED}[Template rendering]${NC} the short-delay body must not contain the model or the permission mode: $body"
         return 1
     fi
 
     out=$(
-        printf '%s' '{"hook_event_name":"Stop","session_id":"render-claude-stop","transcript_path":"/Users/test/.claude/projects/demo/session.jsonl","cwd":"/tmp/demo-project","model":"claude-sonnet-4-5","last_assistant_message":"Claude 侧任务也完成了。"}' \
+        printf '%s' '{"hook_event_name":"Stop","session_id":"render-claude-stop","transcript_path":"/Users/test/.claude/projects/demo/session.jsonl","cwd":"/tmp/demo-project","model":"claude-sonnet-4-5","last_assistant_message":"The Claude side finished too."}' \
             | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
     )
     title=$(echo "$out" | jq -r '.title')
     body=$(echo "$out" | jq -r '.body')
 
-    if [ "$title" != "Claude Code · 任务完成 ✅" ]; then
-        echo -e "${RED}[模板渲染]${NC} Claude Stop 标题错误: $title"
+    if [ "$title" != "Claude Code · Task complete ✅" ]; then
+        echo -e "${RED}[Template rendering]${NC} Claude Stop title is wrong: $title"
         return 1
     fi
-    if [[ "$body" != "[demo-project] Claude 侧任务也完成了。"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} Claude Stop 正文错误: $body"
+    if [[ "$body" != "[demo-project] The Claude side finished too."* ]]; then
+        echo -e "${RED}[Template rendering]${NC} Claude Stop body is wrong: $body"
         return 1
     fi
 
@@ -538,21 +539,21 @@ test_render_templates() {
     body=$(echo "$out" | jq -r '.body')
     status_label=$(echo "$out" | jq -r '.status_label')
 
-    if [ "$title" != "Claude Code · 等待响应 ⏳" ]; then
-        echo -e "${RED}[模板渲染]${NC} Claude Notification 标题错误: $title"
+    if [ "$title" != "Claude Code · Awaiting response ⏳" ]; then
+        echo -e "${RED}[Template rendering]${NC} Claude Notification title is wrong: $title"
         return 1
     fi
-    if [ "$status_label" != "等待响应 ⏳" ]; then
-        echo -e "${RED}[模板渲染]${NC} Claude Notification 状态错误: $status_label"
+    if [ "$status_label" != "Awaiting response ⏳" ]; then
+        echo -e "${RED}[Template rendering]${NC} Claude Notification status is wrong: $status_label"
         return 1
     fi
     if [[ "$body" != "[demo-project] Claude is waiting for your response"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} Claude Notification 正文错误: $body"
+        echo -e "${RED}[Template rendering]${NC} Claude Notification body is wrong: $body"
         return 1
     fi
 
     out=$(
-        printf '%s' '{"hook_event_name":"PermissionRequest","session_id":"render-codex-perm","cwd":"/tmp/demo-project","model":"gpt-5.5","permission_mode":"on-request","tool_name":"Bash","prompt":"请求执行 Bash 命令：git push origin main\n\n该操作会推送远端分支。"}' \
+        printf '%s' '{"hook_event_name":"PermissionRequest","session_id":"render-codex-perm","cwd":"/tmp/demo-project","model":"gpt-5.5","permission_mode":"on-request","tool_name":"Bash","prompt":"Requests to run a Bash command: git push origin main\n\nThe operation pushes the remote branch."}' \
             | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" notification
     )
     title=$(echo "$out" | jq -r '.title')
@@ -560,50 +561,50 @@ test_render_templates() {
     summary=$(echo "$out" | jq -r '.summary_short')
     tool_name=$(echo "$out" | jq -r '.tool_name')
 
-    if [ "$title" != "Codex · 需要确认 🔔" ]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Permission 标题错误: $title"
+    if [ "$title" != "Codex · Approval needed 🔔" ]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Permission title is wrong: $title"
         return 1
     fi
-    if [ "$summary" != "请求执行 Bash 命令：git push origin main" ] || [ "$tool_name" != "Bash" ]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Permission 摘要或工具错误: $out"
+    if [ "$summary" != "Requests to run a Bash command: git push origin main" ] || [ "$tool_name" != "Bash" ]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Permission summary or tool is wrong: $out"
         return 1
     fi
-    if [[ "$body" != "[demo-project] 请求执行 Bash 命令：git push origin main · Bash" ]]; then
-        echo -e "${RED}[模板渲染]${NC} Codex Permission 短正文错误: $body"
+    if [[ "$body" != "[demo-project] Requests to run a Bash command: git push origin main · Bash" ]]; then
+        echo -e "${RED}[Template rendering]${NC} Codex Permission short body is wrong: $body"
         return 1
     fi
     if [[ "$body" == *"on-request"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} Permission mode 不应进入短正文: $body"
+        echo -e "${RED}[Template rendering]${NC} the permission mode must not appear in the short body: $body"
         return 1
     fi
 
     local markdown
     source "${SCRIPT_DIR}/scripts/lib/notify_format.sh"
     markdown=$(notify_long_markdown "$out")
-    if [[ "$markdown" != *"请求执行 Bash 命令：git push origin main"* ]] ||
-       [[ "$markdown" != *"**项目**: demo-project"* ]] ||
-       [[ "$markdown" != *"**事件**: PermissionRequest"* ]] ||
-       [[ "$markdown" != *"**工具**: Bash"* ]] ||
+    if [[ "$markdown" != *"Requests to run a Bash command: git push origin main"* ]] ||
+       [[ "$markdown" != *"**Project**: demo-project"* ]] ||
+       [[ "$markdown" != *"**Event**: PermissionRequest"* ]] ||
+       [[ "$markdown" != *"**Tool**: Bash"* ]] ||
        [[ "$markdown" != *"**Session**: render-c"* ]] ||
        [[ "$markdown" != *"gpt-5.5 · /tmp/demo-project"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} 长通知 Markdown 错误: $markdown"
+        echo -e "${RED}[Template rendering]${NC} fallback notification Markdown is wrong: $markdown"
         return 1
     fi
     if [[ "$markdown" == *"on-request"* ]] || [[ "$markdown" == *"cc-notify-hooks ·"* ]]; then
-        echo -e "${RED}[模板渲染]${NC} 长通知不应包含权限或旧 note: $markdown"
+        echo -e "${RED}[Template rendering]${NC} the fallback notification must not contain the permission mode or the legacy note: $markdown"
         return 1
     fi
 
-    echo -e "${GREEN}[模板渲染]${NC} ✅ 短通知和长通知字段符合预期"
+    echo -e "${GREEN}[Template rendering]${NC} ✅ short-delay and fallback notification fields behave as expected"
 }
 
-# 验证 Reasonix / dsh 的 agent 识别与事件字段兼容
+# Verify agent detection and event-field compatibility for Reasonix / dsh
 test_agent_detection() {
-    echo -e "${YELLOW}[Agent 识别]${NC} 验证 Reasonix / dsh 的 agent 识别与事件字段..."
+    echo -e "${YELLOW}[Agent detection]${NC} verifying Reasonix / dsh agent detection and event fields..."
 
     local out title body summary event_name
 
-    # Reasonix 插件导入格式（Claude 形状 payload + REASONIX_PLUGIN_ROOT 环境）
+    # Reasonix plugin import format (Claude-shaped payload + REASONIX_PLUGIN_ROOT environment)
     out=$(
         printf '%s' '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"approval needed: bash git push origin main","session_id":"reasonix-session-1","cwd":"/tmp/demo-project"}' \
             | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/cc-notify-hooks" \
@@ -612,64 +613,64 @@ test_agent_detection() {
     title=$(echo "$out" | jq -r '.title')
     status_label=$(echo "$out" | jq -r '.status_label')
     summary=$(echo "$out" | jq -r '.summary_short')
-    if [ "$title" != "Reasonix · 需要确认 🔔" ] || [ "$status_label" != "需要确认 🔔" ] ||
+    if [ "$title" != "Reasonix · Approval needed 🔔" ] || [ "$status_label" != "Approval needed 🔔" ] ||
        [ "$summary" != "approval needed: bash git push origin main" ]; then
-        echo -e "${RED}[Agent 识别]${NC} Reasonix Notification 识别或模板错误: $out"
+        echo -e "${RED}[Agent detection]${NC} Reasonix Notification detection or template is wrong: $out"
         return 1
     fi
 
-    # Reasonix 原生格式 payload（event / sessionId / lastAssistantText）
+    # Reasonix native payload format (event / sessionId / lastAssistantText)
     out=$(
-        printf '%s' '{"event":"Stop","sessionId":"reasonix-session-2","cwd":"/tmp/demo-project","lastAssistantText":"已完成检查","turn":1}' \
+        printf '%s' '{"event":"Stop","sessionId":"reasonix-session-2","cwd":"/tmp/demo-project","lastAssistantText":"Checks finished","turn":1}' \
             | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/cc-notify-hooks" \
                 CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
     )
     title=$(echo "$out" | jq -r '.title')
     summary=$(echo "$out" | jq -r '.summary_short')
-    if [ "$title" != "Reasonix · 任务完成 ✅" ] || [ "$summary" != "已完成检查" ]; then
-        echo -e "${RED}[Agent 识别]${NC} Reasonix 原生 Stop 字段错误: $out"
+    if [ "$title" != "Reasonix · Task complete ✅" ] || [ "$summary" != "Checks finished" ]; then
+        echo -e "${RED}[Agent detection]${NC} Reasonix native Stop fields are wrong: $out"
         return 1
     fi
 
-    # dsh 插件环境（DSH_CC_NOTIFY）Stop 事件
+    # dsh plugin environment (DSH_CC_NOTIFY) Stop event
     out=$(
         printf '%s' '{"hook_event_name":"Stop","session_id":"dsh-session-1","cwd":"/tmp/demo-project","stop_hook_active":false}' \
             | DSH_CC_NOTIFY=1 CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
     )
     title=$(echo "$out" | jq -r '.title')
     body=$(echo "$out" | jq -r '.body')
-    if [ "$title" != "dsh · 任务完成 ✅" ] || [[ "$body" != "[demo-project] 任务已完成"* ]]; then
-        echo -e "${RED}[Agent 识别]${NC} dsh Stop 识别或模板错误: $out"
+    if [ "$title" != "dsh · Task complete ✅" ] || [[ "$body" != "[demo-project] Task completed"* ]]; then
+        echo -e "${RED}[Agent detection]${NC} dsh Stop detection or template is wrong: $out"
         return 1
     fi
 
-    # 显式 CC_NOTIFY_AGENT 覆盖优先于环境特征
+    # an explicit CC_NOTIFY_AGENT override wins over environment hints
     out=$(
         printf '%s' '{"hook_event_name":"Stop","session_id":"x","cwd":"/tmp/demo-project"}' \
             | REASONIX_PLUGIN_ROOT="/fake" DSH_CC_NOTIFY=1 CC_NOTIFY_AGENT="Custom Agent" \
                 CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
     )
     title=$(echo "$out" | jq -r '.title')
-    if [ "$title" != "Custom Agent · 任务完成 ✅" ]; then
-        echo -e "${RED}[Agent 识别]${NC} CC_NOTIFY_AGENT 覆盖未生效: $out"
+    if [ "$title" != "Custom Agent · Task complete ✅" ]; then
+        echo -e "${RED}[Agent detection]${NC} the CC_NOTIFY_AGENT override did not take effect: $out"
         return 1
     fi
 
-    # 无环境特征时仍按旧逻辑识别（Notification → Claude Code）
+    # still detected by the original logic when no environment hints exist (Notification → Claude Code)
     out=$(
         printf '%s' '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"waiting","session_id":"c","cwd":"/tmp/demo-project"}' \
             | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" notification
     )
     title=$(echo "$out" | jq -r '.title')
-    if [ "$title" != "Claude Code · 等待响应 ⏳" ]; then
-        echo -e "${RED}[Agent 识别]${NC} 无环境特征时 Claude Notification 识别错误: $out"
+    if [ "$title" != "Claude Code · Awaiting response ⏳" ]; then
+        echo -e "${RED}[Agent detection]${NC} Claude Notification was misidentified without environment hints: $out"
         return 1
     fi
 
-    echo -e "${GREEN}[Agent 识别]${NC} ✅ Reasonix / dsh / 覆盖顺序符合预期"
+    echo -e "${GREEN}[Agent detection]${NC} ✅ Reasonix / dsh / override order behave as expected"
 }
 
-# 主逻辑
+# Main dispatch
 case "$COMMAND" in
     list)
         list_channels

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# 提问工具 PreToolUse dispatcher（Codex / Reasonix / dsh 共用）
-# request_user_input（Codex）、ask / AskUserQuestion（Reasonix/dsh）触发等待通知，
-# 其他工具维持原有 pending 清理行为。
+# Question-tool PreToolUse dispatcher (shared by Codex / Reasonix / dsh)
+# request_user_input (Codex) and ask / AskUserQuestion (Reasonix/dsh) trigger a waiting notification;
+# every other tool keeps the existing pending-clearing behavior.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EVENT_DATA=$(cat 2>/dev/null || true)

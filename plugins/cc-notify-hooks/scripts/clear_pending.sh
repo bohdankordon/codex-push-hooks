@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# 清除当前 session 排队中的通知。
-# 无参数清除当前 session 全部 pending；传入 event kind 时只清理该类别。
+# Clear the notifications queued for the current session.
+# With no argument it clears every pending marker for the current session; with an event kind it clears only that category.
 
 STATE_BASE="${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/hooks}}"
 STATE_DIR="${CC_NOTIFY_STATE_DIR:-${STATE_BASE}/state}"
