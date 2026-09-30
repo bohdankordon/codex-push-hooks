@@ -379,6 +379,15 @@ fi
 
 # Preflight passed: snapshot the canonical link state so a later failure can
 # restore it, then create/update the canonical link.
+# The managed link path must never clobber real user content: only an absent
+# path or an existing symlink is safe. A broken symlink still counts as a
+# symlink ([ -e ] is false for it, [ -L ] is true), so it passes through.
+if [ -e "$PLUGIN_LINK" ] && [ ! -L "$PLUGIN_LINK" ]; then
+    echo -e "  ${RED}✗${NC} $PLUGIN_LINK already exists and is not a symlink."
+    echo -e "  ${YELLOW}Its contents were left untouched, as was $PATCH_FILE.${NC}"
+    echo -e "  ${YELLOW}Move or remove that path manually, then re-run this installer.${NC}"
+    exit 1
+fi
 LINK_WAS_PRESENT=false
 LINK_WAS_LINK=false
 LINK_TARGET=""

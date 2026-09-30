@@ -833,6 +833,7 @@ test_install_smoke() {
 
         local tmp_base tmp_root repo_root probe_dir depth codex_home stubbin reasonix_home dsh_home
         local have_symlinks probe_src probe_link dsh_bad_home dsh_dup_home dsh_comment_home
+        local dsh_file_home dsh_dir_home
         tmp_base="${TMPDIR:-/tmp}"
         tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-install-smoke.XXXXXX")
         trap 'rm -rf "$tmp_root"' EXIT
@@ -1018,6 +1019,46 @@ test_install_smoke() {
                 || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link kept after comment-case migration"; return 1; }
         fi
         echo -e "  dsh installer ignores comment-only id mentions ✅"
+
+        # ---- dsh F: canonical path is a regular file -> refuse, keep it intact ----
+        dsh_file_home="${tmp_root}/dsh-file-home"
+        mkdir -p "${dsh_file_home}/node_modules/@dsh-local"
+        printf '%s\n' 'precious user content' > "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks"
+        cp "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks.before"
+        if printf '\n\n\n\n' | HOME="$dsh_file_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-file.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: real file at the link path should have failed"
+            return 1
+        fi
+        [ -f "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real file vanished"; return 1; }
+        [ ! -L "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real file was replaced by a symlink"; return 1; }
+        cmp -s "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real file contents changed"; return 1; }
+        [ ! -e "${dsh_file_home}/.dsh/cordis.patch.yml" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was touched on link-guard failure"; return 1; }
+        echo -e "  dsh installer refuses a real file at the managed link path ✅"
+
+        # ---- dsh G: canonical path is a real directory -> refuse, keep it intact ----
+        dsh_dir_home="${tmp_root}/dsh-dir-home"
+        mkdir -p "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks"
+        printf '%s\n' 'precious user content' > "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/marker.txt"
+        cp "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/marker.txt" "${dsh_dir_home}/node_modules/@dsh-local/marker.txt.before"
+        if printf '\n\n\n\n' | HOME="$dsh_dir_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-dir.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: real directory at the link path should have failed"
+            return 1
+        fi
+        [ -d "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real directory vanished"; return 1; }
+        [ ! -L "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real directory was replaced by a symlink"; return 1; }
+        cmp -s "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/marker.txt" "${dsh_dir_home}/node_modules/@dsh-local/marker.txt.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: directory contents changed"; return 1; }
+        [ ! -e "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/dsh-plugin" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: nested symlink created inside the real directory"; return 1; }
+        [ ! -e "${dsh_dir_home}/.dsh/cordis.patch.yml" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was touched on link-guard failure"; return 1; }
+        echo -e "  dsh installer refuses a real directory at the managed link path ✅"
 
         echo -e "${GREEN}[Install Smoke]${NC} ✅ canonical paths and legacy migration behave as expected"
     )
