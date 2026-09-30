@@ -12,10 +12,10 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-// Import through a relative file URL directly: the previous
-// pathToFileURL(...pathname) round-trip doubled the drive letter on Windows.
-const { name, apply } = await import(new URL('../index.js', import.meta.url))
+const PLUGIN_URL = pathToFileURL(new URL('../index.js', import.meta.url).pathname).href
+const { name, apply } = await import(PLUGIN_URL)
 
 const results = []
 function pass(label) {

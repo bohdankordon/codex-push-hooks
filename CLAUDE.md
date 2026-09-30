@@ -62,18 +62,20 @@ Configuration file lookup order (implemented in `scripts/notify.sh`):
 1. `${CC_NOTIFY_CONFIG}` (manual override)
 2. `${PLUGIN_DATA}/notify.json` (Codex plugin mode), `${CLAUDE_PLUGIN_DATA}/notify.json` (Claude plugin mode)
 3. `~/.codex/codex-push-hooks/notify.json` (Codex standalone mode)
-4. `~/.codex/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
-5. `~/.reasonix/codex-push-hooks/notify.json` (Reasonix; `REASONIX_HOME` can override the base directory)
-6. `~/.reasonix/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
-7. `~/.dsh/codex-push-hooks/notify.json` (dsh; `DSH_HOME` can override the base directory)
+4. `~/.reasonix/codex-push-hooks/notify.json` (Reasonix; `REASONIX_HOME` can override the base directory)
+5. `~/.dsh/codex-push-hooks/notify.json` (dsh; `DSH_HOME` can override the base directory)
+6. `~/.codex/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
+7. `~/.reasonix/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
 8. `~/.dsh/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
 9. `~/.claude/hooks/notify.json` (Claude standalone mode)
 
-Canonical paths always win over their legacy counterparts; the explicit
-`CC_NOTIFY_CONFIG` override wins over everything. The standalone installers
-offer to reuse a legacy configuration on first install (copied, never moved
-or deleted). `test_notify.sh config-paths` covers discovery, fallback, and
-precedence; `test_notify.sh install-smoke` covers the installer behavior.
+Every canonical path (3-5) takes precedence over every legacy path (6-8),
+so a legacy file can never shadow a canonical configuration from another
+agent; the explicit `CC_NOTIFY_CONFIG` override wins over everything. The
+standalone installers offer to reuse a legacy configuration on first install
+(copied, never moved or deleted). `test_notify.sh config-paths` covers
+discovery, fallback, and precedence; `test_notify.sh install-smoke` covers
+the installer behavior.
 
 ```json
 {

@@ -9,7 +9,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_DIR="${REPO_ROOT}/plugins/codex-push-hooks"  # real plugin root (root entries are symlinks)
 HOOKS_DIR="${HOME}/.claude/hooks"
 SCRIPTS_DIR="${HOOKS_DIR}/scripts"
 STATE_DIR="${HOOKS_DIR}/state"
@@ -279,9 +278,9 @@ echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 # ============================================================
 echo -e "${YELLOW}[3/4]${NC} installing scripts..."
 mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels"
-cp "$PLUGIN_DIR/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
-cp "$PLUGIN_DIR/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
-cp "$PLUGIN_DIR/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
+cp "$REPO_ROOT/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
+cp "$REPO_ROOT/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
+cp "$REPO_ROOT/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
 chmod +x "$SCRIPTS_DIR/notify.sh" "$SCRIPTS_DIR/clear_pending.sh" "$SCRIPTS_DIR/channels/"*.sh
 echo -e "  ${GREEN}✓${NC} scripts copied to $SCRIPTS_DIR"
 
@@ -291,7 +290,7 @@ echo -e "  ${GREEN}✓${NC} scripts copied to $SCRIPTS_DIR"
 echo -e "${YELLOW}[4/4]${NC} configuring hooks..."
 
 # Generate the hooks JSON, replacing paths with the actual install paths
-HOOKS_JSON=$(cat "$PLUGIN_DIR/hooks/hooks.json" | sed "s|\\\${CLAUDE_PLUGIN_ROOT}/scripts|${SCRIPTS_DIR}|g")
+HOOKS_JSON=$(cat "$REPO_ROOT/hooks/hooks.json" | sed "s|\\\${CLAUDE_PLUGIN_ROOT}/scripts|${SCRIPTS_DIR}|g")
 
 if [ -f "$SETTINGS_FILE" ]; then
     BACKUP="${SETTINGS_FILE}.backup.$(date +%Y%m%d%H%M%S)"

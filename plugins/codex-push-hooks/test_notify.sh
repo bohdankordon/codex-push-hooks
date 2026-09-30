@@ -40,18 +40,20 @@ elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
 elif [ -f "${CODEX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
     CONFIG_FILE="${CODEX_HOME_DIR}/codex-push-hooks/notify.json"
-elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
-    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
-    CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${REASONIX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
     CONFIG_FILE="${REASONIX_HOME_DIR}/codex-push-hooks/notify.json"
-elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
-    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
-    CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${DSH_HOME_DIR}/codex-push-hooks/notify.json" ]; then
     CONFIG_FILE="${DSH_HOME_DIR}/codex-push-hooks/notify.json"
+elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: every canonical path above takes precedence over
+    # every legacy path here, so a legacy file can never shadow a canonical
+    # configuration from another agent.
+    CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: see above.
+    CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
-    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
+    # Legacy fallback: see above.
     CONFIG_FILE="${DSH_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
@@ -781,7 +783,29 @@ test_config_paths() {
                 DSH_HOME="${fake_home}/.dsh"
         done
 
-        # 4. an explicit CC_NOTIFY_CONFIG override still wins over everything
+        # 4. a legacy path can never shadow a canonical path from another agent
+        case_dir="${tmp_root}/cross-legacy-codex-canonical-reasonix"
+        fake_home="${case_dir}/home"
+        write_marker_config "${fake_home}/.codex/cc-notify-hooks/notify.json" "legacy-codex-shadow"
+        write_marker_config "${fake_home}/.reasonix/codex-push-hooks/notify.json" "canonical-reasonix-wins"
+        run_lookup_case "cross-legacy-codex-canonical-reasonix" "canonical-reasonix-wins" \
+            HOME="$fake_home" \
+            CODEX_HOME="${fake_home}/.codex" \
+            REASONIX_HOME="${fake_home}/.reasonix" \
+            DSH_HOME="${fake_home}/.dsh"
+
+        case_dir="${tmp_root}/cross-legacy-codex-reasonix-canonical-dsh"
+        fake_home="${case_dir}/home"
+        write_marker_config "${fake_home}/.codex/cc-notify-hooks/notify.json" "legacy-codex-shadow"
+        write_marker_config "${fake_home}/.reasonix/cc-notify-hooks/notify.json" "legacy-reasonix-shadow"
+        write_marker_config "${fake_home}/.dsh/codex-push-hooks/notify.json" "canonical-dsh-wins"
+        run_lookup_case "cross-legacy-codex-reasonix-canonical-dsh" "canonical-dsh-wins" \
+            HOME="$fake_home" \
+            CODEX_HOME="${fake_home}/.codex" \
+            REASONIX_HOME="${fake_home}/.reasonix" \
+            DSH_HOME="${fake_home}/.dsh"
+
+        # 5. an explicit CC_NOTIFY_CONFIG override still wins over everything
         case_dir="${tmp_root}/explicit-override"
         fake_home="${case_dir}/home"
         override_file="${case_dir}/custom.json"
@@ -808,7 +832,7 @@ test_install_smoke() {
         echo -e "${YELLOW}[Install Smoke]${NC} verifying canonical paths and legacy migration..."
 
         local tmp_base tmp_root repo_root probe_dir depth codex_home stubbin reasonix_home dsh_home
-        local have_symlinks probe_src probe_link
+        local have_symlinks probe_src probe_link dsh_bad_home dsh_dup_home
         tmp_base="${TMPDIR:-/tmp}"
         tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-install-smoke.XXXXXX")
         trap 'rm -rf "$tmp_root"' EXIT
@@ -912,6 +936,62 @@ test_install_smoke() {
         [ "$(grep -c "id: codex-push-hooks" "${dsh_home}/.dsh/cordis.patch.yml")" = "1" ] \
             || { echo -e "${RED}[Install Smoke]${NC} dsh: rerun duplicated the insert entry"; return 1; }
         echo -e "  dsh installer rerun stays idempotent ✅"
+
+        link_intact() {
+            # $1 = path that must still exist (as a symlink where supported)
+            if [ "$have_symlinks" = "1" ]; then
+                [ -L "$1" ] || return 1
+            else
+                [ -e "$1" ] || return 1
+            fi
+            return 0
+        }
+
+        # ---- dsh B: unexpected legacy shape fails without changing anything ----
+        dsh_bad_home="${tmp_root}/dsh-bad-home"
+        mkdir -p "${dsh_bad_home}/.dsh/cc-notify-hooks" "${dsh_bad_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_bad_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-bad-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_bad_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '- insert:' '    - id: cc-notify-hooks' "      name: 'some-other-package'" '      config:' '        scriptsDir: /old/custom/scripts' '        stateDir: /old/state' \
+            > "${dsh_bad_home}/.dsh/cordis.patch.yml"
+        cp "${dsh_bad_home}/.dsh/cordis.patch.yml" "${dsh_bad_home}/.dsh/cordis.patch.yml.before"
+        ln -s "${dsh_bad_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_bad_home}/node_modules/@dsh-local/dsh-cc-notify"
+        if printf 'Y\n\n\n\n\n' | HOME="$dsh_bad_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-bad.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: unexpected-shape migration should have failed"
+            return 1
+        fi
+        cmp -s "${dsh_bad_home}/.dsh/cordis.patch.yml" "${dsh_bad_home}/.dsh/cordis.patch.yml.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was mutated on failed migration"; return 1; }
+        link_intact "${dsh_bad_home}/node_modules/@dsh-local/dsh-cc-notify" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link was removed on failed migration"; return 1; }
+        grep -q "id: codex-push-hooks" "${dsh_bad_home}/.dsh/cordis.patch.yml" \
+            && { echo -e "${RED}[Install Smoke]${NC} dsh: canonical entry was partially created"; return 1; }
+        echo -e "  dsh installer refuses an unexpected legacy shape without changing anything ✅"
+
+        # ---- dsh C: canonical + legacy entries already present fails safely ----
+        dsh_dup_home="${tmp_root}/dsh-dup-home"
+        mkdir -p "${dsh_dup_home}/.dsh/cc-notify-hooks" "${dsh_dup_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_dup_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-dup-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_dup_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '- insert:' '    - id: codex-push-hooks' "      name: '@dsh-local/codex-push-hooks'" '      config:' '        scriptsDir: /repo/plugins/codex-push-hooks/scripts' '        stateDir: /repo/state' '- insert:' '    - id: cc-notify-hooks' "      name: '@dsh-local/dsh-cc-notify'" '      config:' '        scriptsDir: /old/clone/plugins/cc-notify-hooks/scripts' '        stateDir: /old/state' \
+            > "${dsh_dup_home}/.dsh/cordis.patch.yml"
+        cp "${dsh_dup_home}/.dsh/cordis.patch.yml" "${dsh_dup_home}/.dsh/cordis.patch.yml.before"
+        ln -s "${dsh_dup_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_dup_home}/node_modules/@dsh-local/dsh-cc-notify"
+        if printf 'Y\n\n\n\n\n' | HOME="$dsh_dup_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-dup.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: duplicate registration should have failed"
+            return 1
+        fi
+        cmp -s "${dsh_dup_home}/.dsh/cordis.patch.yml" "${dsh_dup_home}/.dsh/cordis.patch.yml.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was mutated on duplicate stop"; return 1; }
+        link_intact "${dsh_dup_home}/node_modules/@dsh-local/dsh-cc-notify" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link was removed on duplicate stop"; return 1; }
+        [ "$(grep -c "id: codex-push-hooks" "${dsh_dup_home}/.dsh/cordis.patch.yml")" = "1" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical entry count changed on duplicate stop"; return 1; }
+        grep -q "id: cc-notify-hooks" "${dsh_dup_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy entry vanished on duplicate stop"; return 1; }
+        echo -e "  dsh installer stops on duplicate old/new registration ✅"
 
         echo -e "${GREEN}[Install Smoke]${NC} ✅ canonical paths and legacy migration behave as expected"
     )

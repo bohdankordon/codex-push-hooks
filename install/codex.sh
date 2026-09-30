@@ -9,7 +9,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_DIR="${REPO_ROOT}/plugins/codex-push-hooks"  # real plugin root (root entries are symlinks)
 CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
 INSTALL_DIR="${CODEX_HOME}/codex-push-hooks"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
@@ -267,11 +266,11 @@ echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 # ============================================================
 echo -e "${YELLOW}[3/4]${NC} installing scripts..."
 mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels" "$SCRIPTS_DIR/lib"
-cp "$PLUGIN_DIR/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
-cp "$PLUGIN_DIR/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
-cp "$PLUGIN_DIR/scripts/pre_tool_use.sh" "$SCRIPTS_DIR/pre_tool_use.sh"
-cp "$PLUGIN_DIR/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
-cp "$PLUGIN_DIR/scripts/lib/"*.sh "$SCRIPTS_DIR/lib/"
+cp "$REPO_ROOT/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
+cp "$REPO_ROOT/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
+cp "$REPO_ROOT/scripts/pre_tool_use.sh" "$SCRIPTS_DIR/pre_tool_use.sh"
+cp "$REPO_ROOT/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
+cp "$REPO_ROOT/scripts/lib/"*.sh "$SCRIPTS_DIR/lib/"
 chmod +x \
     "$SCRIPTS_DIR/notify.sh" \
     "$SCRIPTS_DIR/clear_pending.sh" \

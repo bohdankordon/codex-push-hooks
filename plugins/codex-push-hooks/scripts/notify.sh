@@ -32,18 +32,20 @@ elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
 elif [ -f "${CODEX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
     CONFIG_FILE="${CODEX_HOME_DIR}/codex-push-hooks/notify.json"
-elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
-    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
-    CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${REASONIX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
     CONFIG_FILE="${REASONIX_HOME_DIR}/codex-push-hooks/notify.json"
-elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
-    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
-    CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${DSH_HOME_DIR}/codex-push-hooks/notify.json" ]; then
     CONFIG_FILE="${DSH_HOME_DIR}/codex-push-hooks/notify.json"
+elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: every canonical path above takes precedence over
+    # every legacy path here, so a legacy file can never shadow a canonical
+    # configuration from another agent.
+    CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: see above.
+    CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
-    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
+    # Legacy fallback: see above.
     CONFIG_FILE="${DSH_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
