@@ -1,12 +1,12 @@
 {
-  "name": "cc-notify-hooks",
+  "name": "codex-push-hooks",
   "description": "Tiered push notifications for Claude Code — macOS, Bark, Telegram, Feishu, DingTalk, Slack, Discord, Pushover, ntfy, Gotify",
   "version": "2.4.0",
   "author": {
     "name": "MarioZZJ",
     "url": "https://github.com/MarioZZJ"
   },
-  "repository": "https://github.com/MarioZZJ/cc-notify-hooks",
+  "repository": "https://github.com/bohdankordon/codex-push-hooks",
   "license": "MIT",
   "keywords": ["notification", "bark", "telegram", "wechat", "feishu", "dingtalk", "slack", "discord", "pushover", "ntfy", "gotify"]
 }

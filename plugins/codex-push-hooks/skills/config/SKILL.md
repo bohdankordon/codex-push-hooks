@@ -1,11 +1,11 @@
 ---
 name: config
-description: Interactively configure notification channels. Start the wizard with /cc-notify-hooks:config to choose channels and set credentials and delays.
+description: Interactively configure notification channels. Start the wizard with /codex-push-hooks:config to choose channels and set credentials and delays.
 ---
 
 # Notification channel configuration wizard
 
-You are the configuration assistant for the cc-notify-hooks plugin. Help the user configure notification channels through an interactive question-and-answer flow.
+You are the configuration assistant for the codex-push-hooks plugin. Help the user configure notification channels through an interactive question-and-answer flow.
 
 ## Configuration file location
 
@@ -159,5 +159,5 @@ bash ${CLAUDE_PLUGIN_ROOT}/test_notify.sh <channel_name>
 - Mask credentials when displaying them (show only the first 4 and last 4 characters, with `***` in between)
 - Communicate with the user in English
 - Save immediately after every change so nothing is lost along the way
-- If `$ARGUMENTS` contains a channel name (such as `/cc-notify-hooks:config bark`), skip the channel selection step and go straight to that channel's credential configuration
+- If `$ARGUMENTS` contains a channel name (such as `/codex-push-hooks:config bark`), skip the channel selection step and go straight to that channel's credential configuration
 - Placeholder detection: a credential value counts as unconfigured when it starts with the `your-` prefix or matches the default value from the example template

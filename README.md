@@ -1,12 +1,14 @@
-# cc-notify-hooks
+# codex-push-hooks
 
 Tiered push notifications for **Claude Code**, **Codex CLI**, **Reasonix**, and **dsh (DeepSeek Harness)**. It supports **11 notification channels** and works either as a plugin or as standalone scripts, with every agent sharing a single configuration.
+
+codex-push-hooks is based on [cc-notify-hooks](https://github.com/MarioZZJ/cc-notify-hooks) by [MarioZZJ](https://github.com/MarioZZJ).
 
 ## Why tiered notifications?
 
 Tasks run by Claude Code, Codex, Reasonix, and dsh take anywhere from a few seconds to tens of minutes. You will not keep staring at the terminal, but you do need to come back at the right moment.
 
-**cc-notify-hooks splits notifications into two tiers:**
+**codex-push-hooks splits notifications into two tiers:**
 
 **Short-delay notifications (seconds)** — you may have just switched to a browser or a chat window. Instant-reach channels such as desktop notifications and phone pushes remind you that "Claude needs you" within seconds. If you see the notification and come back, the queued pushes are cancelled automatically and you are not bothered again.
 
@@ -80,19 +82,19 @@ User comes back (sends a message / answers a question / clicks an approval butto
 In Claude Code, run:
 
 ```
-/plugin marketplace add MarioZZJ/cc-notify-hooks
-/plugin install cc-notify-hooks@cc-notify-hooks
+/plugin marketplace add bohdankordon/codex-push-hooks
+/plugin install codex-push-hooks@codex-push-hooks
 ```
 
-After installing, run `/reload-plugins` to refresh, then run `/cc-notify-hooks:config` to start the interactive configuration wizard (see [Configuration](#configuration) below).
+After installing, run `/reload-plugins` to refresh, then run `/codex-push-hooks:config` to start the interactive configuration wizard (see [Configuration](#configuration) below).
 
 ### Option 2: Codex CLI marketplace (recommended for Codex users)
 
-`.agents/plugins/marketplace.json` at the repository root is the Codex marketplace, and the actual plugin directory is `plugins/cc-notify-hooks/`. In your terminal, run:
+`.agents/plugins/marketplace.json` at the repository root is the Codex marketplace, and the actual plugin directory is `plugins/codex-push-hooks/`. In your terminal, run:
 
 ```bash
-codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
-codex plugin add cc-notify-hooks@cc-notify-hooks
+codex plugin marketplace add bohdankordon/codex-push-hooks
+codex plugin add codex-push-hooks@codex-push-hooks
 ```
 
 Enable hooks (required; Codex disables them by default) by adding this to `~/.codex/config.toml`:
@@ -109,10 +111,10 @@ Note: Codex runs hook commands from the session `cwd`, not from the plugin root.
 ### Option 3: Local plugin mode
 
 ```bash
-git clone https://github.com/MarioZZJ/cc-notify-hooks.git
+git clone https://github.com/bohdankordon/codex-push-hooks.git
 
 # Claude Code
-claude --plugin-dir ./cc-notify-hooks/plugins/cc-notify-hooks
+claude --plugin-dir ./codex-push-hooks/plugins/codex-push-hooks
 
 # Codex CLI: see the Codex marketplace option above
 ```
@@ -120,8 +122,8 @@ claude --plugin-dir ./cc-notify-hooks/plugins/cc-notify-hooks
 ### Option 4: Standalone installation (no plugin)
 
 ```bash
-git clone https://github.com/MarioZZJ/cc-notify-hooks.git
-cd cc-notify-hooks
+git clone https://github.com/bohdankordon/codex-push-hooks.git
+cd codex-push-hooks
 bash install.sh                  # interactively choose Claude Code / Codex / Reasonix / dsh
 bash install.sh claude           # install into Claude Code directly
 bash install.sh codex            # install into Codex CLI directly
@@ -132,9 +134,9 @@ bash install.sh dsh              # install into dsh (DeepSeek Harness) directly
 The installer walks you through channel selection and credential entry, then generates the configuration for you:
 
 - **Claude branch**: writes `~/.claude/hooks/notify.json` and merges hooks into `~/.claude/settings.json`
-- **Codex branch**: writes `~/.codex/cc-notify-hooks/notify.json`, merges hooks into `~/.codex/hooks.json`, and reminds you to enable `codex_hooks`
-- **Reasonix branch**: writes `~/.reasonix/cc-notify-hooks/notify.json` and registers this repository as a plugin with `reasonix plugin install --link` (`reasonix-plugin.json` declares 5 hooks)
-- **dsh branch**: writes `~/.dsh/cc-notify-hooks/notify.json`, symlinks the plugin package into `~/node_modules/@dsh-local/dsh-cc-notify`, and appends an insert entry to `~/.dsh/cordis.patch.yml` (dsh hot-loads it, no restart required)
+- **Codex branch**: writes `~/.codex/codex-push-hooks/notify.json`, merges hooks into `~/.codex/hooks.json`, and reminds you to enable `codex_hooks`
+- **Reasonix branch**: writes `~/.reasonix/codex-push-hooks/notify.json` and registers this repository as a plugin with `reasonix plugin install --link` (`reasonix-plugin.json` declares 5 hooks)
+- **dsh branch**: writes `~/.dsh/codex-push-hooks/notify.json`, symlinks the plugin package into `~/node_modules/@dsh-local/codex-push-hooks`, and appends an insert entry to `~/.dsh/cordis.patch.yml` (dsh hot-loads it, no restart required)
 
 **After a Claude install, run `/reload-plugins` to refresh; after a Codex install, restart the Codex process; after a Reasonix install, restart the session; a dsh install takes effect immediately.**
 
@@ -143,49 +145,60 @@ The installer walks you through channel selection and credential entry, then gen
 Reasonix natively supports this repository's `reasonix-plugin.json` (`reasonix.io/plugin/v2`), installable from the GitHub repository or from a local directory:
 
 ```bash
-# From GitHub (the repository root is a compatible Claude marketplace and installs plugins/cc-notify-hooks)
-reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes
+# From GitHub (the repository root is a compatible Claude marketplace and installs plugins/codex-push-hooks)
+reasonix plugin install git:github.com/bohdankordon/codex-push-hooks --yes
 
 # Or link a local clone (development mode: repository changes take effect immediately)
-git clone https://github.com/MarioZZJ/cc-notify-hooks.git
-reasonix plugin install ./cc-notify-hooks/plugins/cc-notify-hooks --link --yes
+git clone https://github.com/bohdankordon/codex-push-hooks.git
+reasonix plugin install ./codex-push-hooks/plugins/codex-push-hooks --link --yes
 ```
 
 After installing:
 
 ```bash
-reasonix plugin show cc-notify-hooks   # inspect the 5 hooks
+reasonix plugin show codex-push-hooks   # inspect the 5 hooks
 reasonix hook list --json              # confirm the hooks are loaded
 ```
 
-Plugin hooks use `payloadFormat: "claude"`, so the scripts receive stdin with the same fields as Claude Code (`hook_event_name`/`session_id`/`message`…) and share the same `notify.sh`. The configuration file lives at `~/.reasonix/cc-notify-hooks/notify.json` (the scripts also accept `~/.claude/hooks/notify.json` or `~/.codex/cc-notify-hooks/notify.json`, searched in order).
+Plugin hooks use `payloadFormat: "claude"`, so the scripts receive stdin with the same fields as Claude Code (`hook_event_name`/`session_id`/`message`…) and share the same `notify.sh`. The configuration file lives at `~/.reasonix/codex-push-hooks/notify.json` (the scripts also accept `~/.claude/hooks/notify.json` or `~/.codex/codex-push-hooks/notify.json`, searched in order).
 
 ### Option 6: dsh plugin (DeepSeek Harness)
 
-dsh has no external shell hooks, so this repository ships a zero-dependency host plugin, `dsh-cc-notify` (`plugins/cc-notify-hooks/dsh-plugin/`), that subscribes directly to dsh interception points (`approval/request`, `agent/turn-stopping`, `agent/pre-step`, `tools/pre-execute`, `tools/post-execute`) and calls the same `scripts/`.
+dsh has no external shell hooks, so this repository ships a zero-dependency host plugin, `dsh-codex-push-hooks` (`plugins/codex-push-hooks/dsh-plugin/`), that subscribes directly to dsh interception points (`approval/request`, `agent/turn-stopping`, `agent/pre-step`, `tools/pre-execute`, `tools/post-execute`) and calls the same `scripts/`.
 
 The recommended path is the standalone installer:
 
 ```bash
-cd cc-notify-hooks && bash install/dsh.sh
+cd codex-push-hooks && bash install/dsh.sh
 ```
 
-It does three things: symlinks the plugin package into `~/node_modules/@dsh-local/dsh-cc-notify`, writes `~/.dsh/cc-notify-hooks/notify.json`, and appends this to `~/.dsh/cordis.patch.yml`:
+It does three things: symlinks the plugin package into `~/node_modules/@dsh-local/codex-push-hooks`, writes `~/.dsh/codex-push-hooks/notify.json`, and appends this to `~/.dsh/cordis.patch.yml`:
 
 ```yaml
 - insert:
-    - id: cc-notify-hooks
-      name: '@dsh-local/dsh-cc-notify'
+    - id: codex-push-hooks
+      name: '@dsh-local/codex-push-hooks'
       config:
-        scriptsDir: /path/to/cc-notify-hooks/plugins/cc-notify-hooks/scripts
+        scriptsDir: /path/to/codex-push-hooks/plugins/codex-push-hooks/scripts
         stateDir: /home/you/.claude/hooks/state
 ```
 
 dsh hot-loads `~/.dsh/cordis.patch.yml`, so running sessions pick it up immediately (`dsh web --dump-config` confirms the entry made it into the composition tree). Plugin unit tests:
 
 ```bash
-node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs
+node plugins/codex-push-hooks/dsh-plugin/test/plugin.test.mjs
 ```
+
+### Migrating from cc-notify-hooks
+
+If you previously installed the upstream `cc-notify-hooks` plugin:
+
+1. The project and plugin identity is now `codex-push-hooks` (`/codex-push-hooks:config`).
+2. Do not keep the old and new plugins enabled at the same time — the same lifecycle hooks would fire twice and you would get duplicate notifications.
+3. Remove or disable the old `cc-notify-hooks` plugin identity first, then install and enable `codex-push-hooks`.
+4. Legacy configuration files (`~/.codex/cc-notify-hooks/notify.json`, `~/.reasonix/cc-notify-hooks/notify.json`, `~/.dsh/cc-notify-hooks/notify.json`) are still recognized; the standalone installers offer to reuse them automatically.
+5. New installs and configuration writes use the canonical `codex-push-hooks` paths.
+6. When a legacy configuration is reused, existing channel credentials carry over — nothing needs to be re-entered.
 
 ### Verification
 
@@ -200,7 +213,9 @@ bash test_notify.sh user-input   # verify the request_user_input dispatcher and 
 bash test_notify.sh state        # verify multi-session state isolation and exact deduplication
 bash test_notify.sh render       # verify the notification content templates
 bash test_notify.sh agents       # verify Reasonix / dsh agent detection and event fields
-node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit tests
+bash test_notify.sh config-paths  # verify canonical config discovery, legacy fallback, and precedence
+bash test_notify.sh install-smoke  # verify installer canonical paths and legacy migration
+node plugins/codex-push-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit tests
 ```
 
 ## Configuration
@@ -210,7 +225,7 @@ node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit 
 In Claude Code, run:
 
 ```
-/cc-notify-hooks:config
+/codex-push-hooks:config
 ```
 
 The wizard walks you through:
@@ -228,7 +243,7 @@ Create `~/.claude/hooks/notify.json`, either by fetching the template or by copy
 
 ```bash
 # marketplace install: fetch the template from the project repository
-curl -sL https://raw.githubusercontent.com/MarioZZJ/cc-notify-hooks/main/plugins/cc-notify-hooks/config/notify.example.json \
+curl -sL https://raw.githubusercontent.com/bohdankordon/codex-push-hooks/main/plugins/codex-push-hooks/config/notify.example.json \
   -o ~/.claude/hooks/notify.json
 
 # local clone: copy it directly
@@ -376,7 +391,7 @@ Declared in `reasonix-plugin.json` (`payloadFormat: "claude"`, so the scripts re
 
 ### dsh (DeepSeek Harness)
 
-The host plugin `dsh-cc-notify` subscribes to dsh interception points (equivalent to external hook semantics):
+The host plugin `dsh-codex-push-hooks` subscribes to dsh interception points (equivalent to external hook semantics):
 
 | Interception point | Trigger | Behavior |
 |--------------------|---------|----------|
@@ -447,15 +462,15 @@ Fallback notifications for waiting-for-input also show the number of questions, 
 ## File structure
 
 ```
-cc-notify-hooks/
+codex-push-hooks/
 ├── .claude-plugin/
-│   ├── plugin.json -> ../plugins/cc-notify-hooks/.claude-plugin/plugin.json
-│   └── marketplace.json     # Claude Code marketplace (points at plugins/cc-notify-hooks)
+│   ├── plugin.json -> ../plugins/codex-push-hooks/.claude-plugin/plugin.json
+│   └── marketplace.json     # Claude Code marketplace (points at plugins/codex-push-hooks)
 ├── .codex-plugin/
-│   └── plugin.json -> ../plugins/cc-notify-hooks/.codex-plugin/plugin.json
+│   └── plugin.json -> ../plugins/codex-push-hooks/.codex-plugin/plugin.json
 ├── .agents/plugins/
-│   └── marketplace.json     # Codex CLI marketplace (points at plugins/cc-notify-hooks)
-├── plugins/cc-notify-hooks/ # the real plugin root; Claude/Codex/Reasonix/dsh all install from here
+│   └── marketplace.json     # Codex CLI marketplace (points at plugins/codex-push-hooks)
+├── plugins/codex-push-hooks/ # the real plugin root; Claude/Codex/Reasonix/dsh all install from here
 │   ├── .claude-plugin/plugin.json
 │   ├── .codex-plugin/plugin.json
 │   ├── reasonix-plugin.json # native Reasonix plugin manifest (v2, 5 hooks)
@@ -474,17 +489,17 @@ cc-notify-hooks/
 │   │   └── channels/
 │   ├── config/notify.example.json
 │   └── test_notify.sh
-├── skills -> plugins/cc-notify-hooks/skills
-├── hooks -> plugins/cc-notify-hooks/hooks
-├── scripts -> plugins/cc-notify-hooks/scripts
-├── config -> plugins/cc-notify-hooks/config
+├── skills -> plugins/codex-push-hooks/skills
+├── hooks -> plugins/codex-push-hooks/hooks
+├── scripts -> plugins/codex-push-hooks/scripts
+├── config -> plugins/codex-push-hooks/config
 ├── install.sh               # standalone installer entry point (router)
 ├── install/
 │   ├── claude.sh            # Claude Code install branch
 │   ├── codex.sh             # Codex CLI install branch
 │   ├── reasonix.sh          # Reasonix install branch (reasonix plugin install --link)
 │   └── dsh.sh               # dsh install branch (plugin symlink + cordis.patch.yml insert)
-└── test_notify.sh -> plugins/cc-notify-hooks/test_notify.sh
+└── test_notify.sh -> plugins/codex-push-hooks/test_notify.sh
 ```
 
 Debug log: `/tmp/claude-hooks-debug.log`
@@ -503,21 +518,28 @@ rm -rf ~/.claude/hooks/scripts ~/.claude/hooks/notify.json ~/.claude/hooks/state
 
 **Standalone install (Codex)**:
 ```bash
-rm -rf ~/.codex/cc-notify-hooks
+rm -rf ~/.codex/codex-push-hooks
 # edit ~/.codex/hooks.json manually to remove the related events; optionally turn off codex_hooks
 ```
 
 **Standalone install (Reasonix)**:
 ```bash
-reasonix plugin remove cc-notify-hooks --yes
-rm -rf ~/.reasonix/cc-notify-hooks
+reasonix plugin remove codex-push-hooks --yes
+rm -rf ~/.reasonix/codex-push-hooks
 ```
 
 **Standalone install (dsh)**:
 ```bash
+rm -f ~/node_modules/@dsh-local/codex-push-hooks
+# edit ~/.dsh/cordis.patch.yml manually and delete the codex-push-hooks insert entry
+rm -rf ~/.dsh/codex-push-hooks
+```
+
+If you migrated from `cc-notify-hooks`, also remove the legacy leftovers once the new install works:
+```bash
+rm -rf ~/.codex/cc-notify-hooks ~/.reasonix/cc-notify-hooks ~/.dsh/cc-notify-hooks
 rm -f ~/node_modules/@dsh-local/dsh-cc-notify
-# edit ~/.dsh/cordis.patch.yml manually and delete the cc-notify-hooks insert entry
-rm -rf ~/.dsh/cc-notify-hooks
+# edit ~/.dsh/cordis.patch.yml manually and delete the cc-notify-hooks insert entry if one remains
 ```
 
 ## License

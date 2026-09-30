@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks standalone install script (dsh / DeepSeek Harness branch)
-# Writes the configuration to ~/.dsh/cc-notify-hooks/notify.json,
-# symlinks the plugin package into ~/node_modules/@dsh-local/dsh-cc-notify,
+# codex-push-hooks standalone install script (dsh / DeepSeek Harness branch)
+# Writes the configuration to ~/.dsh/codex-push-hooks/notify.json,
+# symlinks the plugin package into ~/node_modules/@dsh-local/codex-push-hooks,
 # and appends an insert entry to ~/.dsh/cordis.patch.yml (hot-loaded, no restart needed).
 #
 # Can be called by the install.sh router or run on its own:
@@ -11,16 +11,19 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_PKG_DIR="${REPO_ROOT}/plugins/cc-notify-hooks/dsh-plugin"
-SCRIPTS_DIR="${REPO_ROOT}/plugins/cc-notify-hooks/scripts"
+PLUGIN_PKG_DIR="${REPO_ROOT}/plugins/codex-push-hooks/dsh-plugin"
+SCRIPTS_DIR="${REPO_ROOT}/plugins/codex-push-hooks/scripts"
 DSH_HOME_DIR="${DSH_HOME:-${HOME}/.dsh}"
-INSTALL_DIR="${DSH_HOME_DIR}/cc-notify-hooks"
+INSTALL_DIR="${DSH_HOME_DIR}/codex-push-hooks"
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
 STATE_DIR="${HOME}/.claude/hooks/state"  # shared state directory for all agents
 PATCH_FILE="${DSH_HOME_DIR}/cordis.patch.yml"
 NODE_MODULES_DIR="${HOME}/node_modules/@dsh-local"
-PLUGIN_LINK="${NODE_MODULES_DIR}/dsh-cc-notify"
-PLUGIN_ENTRY_ID="cc-notify-hooks"
+PLUGIN_LINK="${NODE_MODULES_DIR}/codex-push-hooks"
+PLUGIN_ENTRY_ID="codex-push-hooks"
+# Legacy pre-rebrand identifiers (migration only; never installed fresh).
+LEGACY_ENTRY_ID="cc-notify-hooks"
+LEGACY_LINK="${NODE_MODULES_DIR}/dsh-cc-notify"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -33,7 +36,7 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - dsh standalone install"
+echo "  codex-push-hooks - dsh standalone install"
 echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
@@ -101,11 +104,15 @@ _read_json() {
     echo "$default"
 }
 
-# Reuse an existing configuration (Claude / Codex / Reasonix) so credentials are not entered twice
+# Reuse an existing configuration (own legacy path first, then Claude / Codex / Reasonix)
+# so credentials are not entered twice. Legacy files are copied, never moved or deleted.
 if [ ! -f "$CONFIG_FILE" ]; then
     for existing in \
+        "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" \
         "${HOME}/.claude/hooks/notify.json" \
+        "${CODEX_HOME:-${HOME}/.codex}/codex-push-hooks/notify.json" \
         "${CODEX_HOME:-${HOME}/.codex}/cc-notify-hooks/notify.json" \
+        "${REASONIX_HOME:-${HOME}/.reasonix}/codex-push-hooks/notify.json" \
         "${REASONIX_HOME:-${HOME}/.reasonix}/cc-notify-hooks/notify.json"; do
         if [ -f "$existing" ]; then
             echo -e "  ${CYAN}Existing configuration detected; it can be reused${NC}"
@@ -269,6 +276,13 @@ echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 # ============================================================
 echo -e "${YELLOW}[3/5]${NC} linking the plugin package..."
 mkdir -p "$NODE_MODULES_DIR"
+# A pre-rebrand install leaves a stale legacy symlink behind; remove it so the
+# old and new integrations can never be registered side by side. Only a
+# symlink is removed here, never a real directory.
+if [ -L "$LEGACY_LINK" ]; then
+    rm -f "$LEGACY_LINK"
+    echo -e "  ${CYAN}removed the legacy link $LEGACY_LINK${NC}"
+fi
 ln -sfn "$PLUGIN_PKG_DIR" "$PLUGIN_LINK"
 echo -e "  ${GREEN}✓${NC} $PLUGIN_LINK -> $PLUGIN_PKG_DIR"
 
@@ -280,13 +294,39 @@ echo -e "${YELLOW}[4/5]${NC} writing the dsh plugin configuration..."
 PATCH_BLOCK="
 - insert:
     - id: ${PLUGIN_ENTRY_ID}
-      name: '@dsh-local/dsh-cc-notify'
+      name: '@dsh-local/codex-push-hooks'
       config:
         scriptsDir: ${SCRIPTS_DIR}
         stateDir: ${STATE_DIR}"
 
+# Rewrite a pre-rebrand legacy insert entry in place (id, scoped package
+# name, and scripts directory) so the old and new integrations can never
+# both be active. Only lines inside the legacy entry are touched.
+migrate_legacy_patch_entry() {
+    local patch_file="$1"
+    local tmp_out="${patch_file}.tmp.$$"
+    awk '
+        in_legacy == 0 && /- id: cc-notify-hooks$/ { in_legacy = 1; sub(/cc-notify-hooks$/, "codex-push-hooks") }
+        in_legacy == 1 && /@dsh-local\/dsh-cc-notify/ { sub(/@dsh-local\/dsh-cc-notify/, "@dsh-local/codex-push-hooks") }
+        in_legacy == 1 && /scriptsDir:.*plugins\/cc-notify-hooks\/scripts/ { sub(/plugins\/cc-notify-hooks\/scripts/, "plugins/codex-push-hooks/scripts") }
+        { print }
+        in_legacy == 1 && /stateDir:/ { in_legacy = 0 }
+    ' "$patch_file" > "$tmp_out" && mv "$tmp_out" "$patch_file"
+}
+
 if [ -f "$PATCH_FILE" ] && grep -q "id: ${PLUGIN_ENTRY_ID}$" "$PATCH_FILE"; then
     echo -e "  ${YELLOW}⚠${NC} $PATCH_FILE already has an ${PLUGIN_ENTRY_ID} entry; skipping the write"
+elif [ -f "$PATCH_FILE" ] && grep -q "id: ${LEGACY_ENTRY_ID}$" "$PATCH_FILE"; then
+    BACKUP="${PATCH_FILE}.backup.$(date +%Y%m%d%H%M%S)"
+    cp "$PATCH_FILE" "$BACKUP"
+    echo "  backed up the original configuration to: $BACKUP"
+    migrate_legacy_patch_entry "$PATCH_FILE"
+    if grep -q "id: ${LEGACY_ENTRY_ID}$" "$PATCH_FILE"; then
+        echo -e "  ${RED}✗${NC} the legacy ${LEGACY_ENTRY_ID} entry has an unexpected shape; left untouched."
+        echo -e "  ${YELLOW}⚠${NC} remove or rename it to ${PLUGIN_ENTRY_ID} manually so both entries are never active at once."
+    else
+        echo -e "  ${GREEN}✓${NC} migrated the legacy ${LEGACY_ENTRY_ID} entry to ${PLUGIN_ENTRY_ID} (no duplicate registration)"
+    fi
 else
     if [ -f "$PATCH_FILE" ] && [ -s "$PATCH_FILE" ]; then
         BACKUP="${PATCH_FILE}.backup.$(date +%Y%m%d%H%M%S)"
@@ -351,6 +391,6 @@ echo "    agent/turn-stopping → push when a turn ends (task complete ✅)"
 echo "    agent/pre-step      → cancel queued pushes once the user responds"
 echo "    tools/pre-execute   → push for ask_user_question (reply needed 🔔)"
 echo ""
-echo "  Uninstall: delete the cc-notify-hooks entry from $PATCH_FILE and remove $PLUGIN_LINK"
+echo "  Uninstall: delete the codex-push-hooks entry from $PATCH_FILE and remove $PLUGIN_LINK"
 echo "  Change the configuration: edit $CONFIG_FILE"
 echo "========================================="

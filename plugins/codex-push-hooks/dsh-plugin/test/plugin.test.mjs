@@ -1,21 +1,21 @@
 /**
- * dsh-cc-notify plugin unit test (no external dependencies).
+ * dsh-codex-push-hooks plugin unit test (no external dependencies).
  *
  * Installs stub bash scripts into a temp "scriptsDir", drives the plugin's
  * `apply()` with a mocked cordis ctx, and asserts that each harness
- * interception point spawns the right cc-notify-hooks script with the right
+ * interception point spawns the right codex-push-hooks script with the right
  * payload, environment, and (for waterfalls) always delegates via next().
  *
- * Run: node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs
+ * Run: node plugins/codex-push-hooks/dsh-plugin/test/plugin.test.mjs
  */
 
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 
-const PLUGIN_URL = pathToFileURL(new URL('../index.js', import.meta.url).pathname).href
-const { name, apply } = await import(PLUGIN_URL)
+// Import through a relative file URL directly: the previous
+// pathToFileURL(...pathname) round-trip doubled the drive letter on Windows.
+const { name, apply } = await import(new URL('../index.js', import.meta.url))
 
 const results = []
 function pass(label) {
@@ -28,7 +28,7 @@ function fail(label, detail = '') {
 }
 
 // ---- stub scripts that capture their invocation ---------------------------
-const tmp = mkdtempSync(join(tmpdir(), 'dsh-cc-notify-test-'))
+const tmp = mkdtempSync(join(tmpdir(), 'dsh-codex-push-hooks-test-'))
 const scriptsDir = join(tmp, 'scripts')
 const captureDir = join(tmp, 'capture')
 mkdirSync(scriptsDir)
@@ -233,8 +233,8 @@ const waitTick = () => new Promise((resolve) => setTimeout(resolve, 100))
 }
 
 // ---- 8. plugin meta --------------------------------------------------------
-name === 'dsh-cc-notify'
-  ? pass('plugin name is dsh-cc-notify')
+name === 'dsh-codex-push-hooks'
+  ? pass('plugin name is dsh-codex-push-hooks')
   : fail('plugin name', name)
 
 rmSync(tmp, { recursive: true, force: true })

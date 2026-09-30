@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks tiered push notifications - main dispatcher
+# codex-push-hooks tiered push notifications - main dispatcher
 #
 # How it works:
 #   read the JSON config → parse the event → filter → sort by delay → push in tiers in the background
@@ -30,11 +30,20 @@ elif [ -n "${PLUGIN_DATA:-}" ] && [ -f "${PLUGIN_DATA}/notify.json" ]; then
     CONFIG_FILE="${PLUGIN_DATA}/notify.json"
 elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json" ]; then
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
+elif [ -f "${CODEX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
+    CONFIG_FILE="${CODEX_HOME_DIR}/codex-push-hooks/notify.json"
 elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
     CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${REASONIX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
+    CONFIG_FILE="${REASONIX_HOME_DIR}/codex-push-hooks/notify.json"
 elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
     CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${DSH_HOME_DIR}/codex-push-hooks/notify.json" ]; then
+    CONFIG_FILE="${DSH_HOME_DIR}/codex-push-hooks/notify.json"
 elif [ -f "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: pre-rebrand configuration path (canonical path above wins).
     CONFIG_FILE="${DSH_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"

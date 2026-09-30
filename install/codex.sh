@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks standalone install script (Codex CLI branch)
-# Deploys scripts/ to ~/.codex/cc-notify-hooks/ and writes ~/.codex/hooks.json
+# codex-push-hooks standalone install script (Codex CLI branch)
+# Deploys scripts/ to ~/.codex/codex-push-hooks/ and writes ~/.codex/hooks.json
 #
 # Can be called by the install.sh router or run on its own:
 #   bash install/codex.sh
@@ -9,8 +9,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGIN_DIR="${REPO_ROOT}/plugins/codex-push-hooks"  # real plugin root (root entries are symlinks)
 CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
-INSTALL_DIR="${CODEX_HOME}/cc-notify-hooks"
+INSTALL_DIR="${CODEX_HOME}/codex-push-hooks"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
 STATE_DIR="${HOME}/.claude/hooks/state"  # reuse Claude's state directory so both can coexist
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
@@ -28,7 +29,7 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - Codex CLI standalone install"
+echo "  codex-push-hooks - Codex CLI standalone install"
 echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
@@ -97,18 +98,26 @@ _read_json() {
     echo "$default"
 }
 
-# Reuse the Claude configuration when one already exists
+# Reuse an existing configuration so credentials are not entered twice.
+# The own legacy path is offered first; legacy files are copied, never
+# moved or deleted, and an existing canonical file is never overwritten.
+LEGACY_CONFIG="${CODEX_HOME}/cc-notify-hooks/notify.json"
 CLAUDE_CONFIG="${HOME}/.claude/hooks/notify.json"
-if [ ! -f "$CONFIG_FILE" ] && [ -f "$CLAUDE_CONFIG" ]; then
-    echo -e "  ${CYAN}Detected a Claude Code configuration that can be reused${NC}"
-    printf "  Reuse $CLAUDE_CONFIG? [Y/n]: "
-    read -r reuse
-    if [[ ! "$reuse" =~ ^[Nn] ]]; then
-        mkdir -p "$INSTALL_DIR"
-        cp "$CLAUDE_CONFIG" "$CONFIG_FILE"
-        echo -e "  ${GREEN}✓${NC} reused the Claude configuration"
-        echo ""
-    fi
+if [ ! -f "$CONFIG_FILE" ]; then
+    for existing in "$LEGACY_CONFIG" "$CLAUDE_CONFIG"; do
+        if [ -f "$existing" ]; then
+            echo -e "  ${CYAN}Detected an existing configuration that can be reused${NC}"
+            printf "  Reuse $existing? [Y/n]: "
+            read -r reuse
+            if [[ ! "$reuse" =~ ^[Nn] ]]; then
+                mkdir -p "$INSTALL_DIR"
+                cp "$existing" "$CONFIG_FILE"
+                echo -e "  ${GREEN}✓${NC} reused the configuration (the original file was kept)"
+                echo ""
+            fi
+            break
+        fi
+    done
 fi
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -258,11 +267,11 @@ echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 # ============================================================
 echo -e "${YELLOW}[3/4]${NC} installing scripts..."
 mkdir -p "$STATE_DIR" "$SCRIPTS_DIR/channels" "$SCRIPTS_DIR/lib"
-cp "$REPO_ROOT/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
-cp "$REPO_ROOT/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
-cp "$REPO_ROOT/scripts/pre_tool_use.sh" "$SCRIPTS_DIR/pre_tool_use.sh"
-cp "$REPO_ROOT/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
-cp "$REPO_ROOT/scripts/lib/"*.sh "$SCRIPTS_DIR/lib/"
+cp "$PLUGIN_DIR/scripts/notify.sh" "$SCRIPTS_DIR/notify.sh"
+cp "$PLUGIN_DIR/scripts/clear_pending.sh" "$SCRIPTS_DIR/clear_pending.sh"
+cp "$PLUGIN_DIR/scripts/pre_tool_use.sh" "$SCRIPTS_DIR/pre_tool_use.sh"
+cp "$PLUGIN_DIR/scripts/channels/"*.sh "$SCRIPTS_DIR/channels/"
+cp "$PLUGIN_DIR/scripts/lib/"*.sh "$SCRIPTS_DIR/lib/"
 chmod +x \
     "$SCRIPTS_DIR/notify.sh" \
     "$SCRIPTS_DIR/clear_pending.sh" \
@@ -280,7 +289,7 @@ echo -e "  ${GREEN}✓${NC} scripts copied to $SCRIPTS_DIR"
 # ============================================================
 echo -e "${YELLOW}[4/4]${NC} writing hooks.json..."
 
-# Call the scripts with absolute paths; notify.sh reads its configuration from ~/.codex/cc-notify-hooks/notify.json
+# Call the scripts with absolute paths; notify.sh reads its configuration from ~/.codex/codex-push-hooks/notify.json
 HOOKS_JSON=$(jq -n --arg s "$SCRIPTS_DIR" '
 {
   hooks: {

@@ -1,10 +1,10 @@
 {
   "apiVersion": "reasonix.io/plugin/v2",
-  "name": "cc-notify-hooks",
+  "name": "codex-push-hooks",
   "version": "2.4.0",
   "description": "Tiered push notifications for Reasonix — macOS, Bark, Telegram, Feishu, DingTalk, Slack, Discord, Pushover, ntfy, Gotify",
-  "homepage": "https://github.com/MarioZZJ/cc-notify-hooks",
-  "repository": "https://github.com/MarioZZJ/cc-notify-hooks",
+  "homepage": "https://github.com/bohdankordon/codex-push-hooks",
+  "repository": "https://github.com/bohdankordon/codex-push-hooks",
   "hooks": {
     "Notification": [
       {

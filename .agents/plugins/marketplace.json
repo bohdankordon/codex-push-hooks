@@ -1,15 +1,15 @@
 {
-  "name": "cc-notify-hooks",
+  "name": "codex-push-hooks",
   "interface": {
-    "displayName": "cc-notify-hooks"
+    "displayName": "Codex Push Hooks"
   },
   "plugins": [
     {
-      "name": "cc-notify-hooks",
+      "name": "codex-push-hooks",
       "version": "2.4.0",
       "source": {
         "source": "local",
-        "path": "./plugins/cc-notify-hooks"
+        "path": "./plugins/codex-push-hooks"
       },
       "policy": {
         "installation": "AVAILABLE",

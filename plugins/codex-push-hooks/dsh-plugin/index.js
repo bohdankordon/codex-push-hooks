@@ -1,7 +1,7 @@
 /**
- * dsh-cc-notify — cc-notify-hooks bridge plugin for the DeepSeek Harness (dsh).
+ * dsh-codex-push-hooks — codex-push-hooks bridge plugin for the DeepSeek Harness (dsh).
  *
- * A zero-dependency host plugin that reuses the cc-notify-hooks bash scripts:
+ * A zero-dependency host plugin that reuses the codex-push-hooks bash scripts:
  *
  *   approval/request      → notify.sh notification   (approval needed 🔔, always proxies next())
  *   agent/turn-stopping   → notify.sh stop            (task complete ✅)
@@ -11,7 +11,7 @@
  *   tools/post-execute    → clear_pending.sh user_input (clears after the question returns)
  *
  * Configuration (plugin `config:` in ~/.dsh/cordis.patch.yml):
- *   scriptsDir  — absolute path of the cc-notify-hooks scripts directory (required)
+ *   scriptsDir  — absolute path of the codex-push-hooks scripts directory (required)
  *   stateDir    — pending/rate-limit state directory (default ~/.claude/hooks/state,
  *                 shared with the Claude/Codex/Reasonix installs)
  *   configFile  — optional notify.json override (default: notify.sh's own lookup chain)
@@ -20,7 +20,7 @@
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 
-export const name = 'dsh-cc-notify'
+export const name = 'dsh-codex-push-hooks'
 
 /** dsh question tools that deserve a "waiting for reply" push. */
 const QUESTION_TOOLS = new Set(['ask_user_question'])
@@ -34,8 +34,8 @@ export function apply(ctx, config = {}) {
   const scriptsDir = typeof config.scriptsDir === 'string' ? config.scriptsDir.trim() : ''
   if (!scriptsDir) {
     ctx.logger.warn(
-      '[dsh-cc-notify] scriptsDir is not configured; plugin disabled. '
-      + 'Set config.scriptsDir to the cc-notify-hooks scripts directory.',
+      '[dsh-codex-push-hooks] scriptsDir is not configured; plugin disabled. '
+      + 'Set config.scriptsDir to the codex-push-hooks scripts directory.',
     )
     return
   }
@@ -54,7 +54,7 @@ export function apply(ctx, config = {}) {
     hookEnv.CC_NOTIFY_CONFIG = config.configFile.trim()
   }
 
-  /** Spawn one cc-notify-hooks script with the hook payload on stdin, detached. */
+  /** Spawn one codex-push-hooks script with the hook payload on stdin, detached. */
   function runScript(script, args, payload) {
     let child
     try {
@@ -64,11 +64,11 @@ export function apply(ctx, config = {}) {
         detached: true,
       })
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] failed to start ${script}: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] failed to start ${script}: ${String(error)}`)
       return
     }
     child.on('error', (error) => {
-      ctx.logger.warn(`[dsh-cc-notify] ${script} failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] ${script} failed: ${String(error)}`)
     })
     child.stdin.on('error', () => {})
     child.stdin.end(payload === undefined ? '' : JSON.stringify(payload))
@@ -108,7 +108,7 @@ export function apply(ctx, config = {}) {
       const text = blocksToText(event.data?.message?.content)
       if (text) lastAssistantText.set(session.id, text)
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] session observer failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] session observer failed: ${String(error)}`)
     }
   })
 
@@ -124,7 +124,7 @@ export function apply(ctx, config = {}) {
         tool_name: typeof request?.toolName === 'string' ? request.toolName : '',
       })
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] approval notification failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] approval notification failed: ${String(error)}`)
     }
     return next()
   })
@@ -142,7 +142,7 @@ export function apply(ctx, config = {}) {
         last_assistant_message: typeof text === 'string' ? text : '',
       })
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] stop notification failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] stop notification failed: ${String(error)}`)
     }
   })
 
@@ -156,7 +156,7 @@ export function apply(ctx, config = {}) {
         prompt: text,
       })
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] pre-step clear failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] pre-step clear failed: ${String(error)}`)
     }
     return next()
   })
@@ -175,7 +175,7 @@ export function apply(ctx, config = {}) {
       }
       preTool(payload)
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] pre-tool dispatch failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] pre-tool dispatch failed: ${String(error)}`)
     }
     return next()
   })
@@ -191,10 +191,10 @@ export function apply(ctx, config = {}) {
         }, ['user_input'])
       }
     } catch (error) {
-      ctx.logger.warn(`[dsh-cc-notify] post-tool clear failed: ${String(error)}`)
+      ctx.logger.warn(`[dsh-codex-push-hooks] post-tool clear failed: ${String(error)}`)
     }
     return next()
   })
 
-  ctx.logger.info(`[dsh-cc-notify] active (scriptsDir=${scriptsDir}, stateDir=${stateDir})`)
+  ctx.logger.info(`[dsh-codex-push-hooks] active (scriptsDir=${scriptsDir}, stateDir=${stateDir})`)
 }
