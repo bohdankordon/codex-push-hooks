@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>cc-notify-hooks — the attention scheduler for the AI agent era</title>
+<title>codex-push-hooks — the attention scheduler for the AI agent era</title>
 <meta name="description" content="Tiered push notifications for Claude Code, Codex CLI, Reasonix, and dsh. 11 channels: short-delay notifications for instant reach, card-style fallback notifications as a safety net. Humans can idle; agents cannot.">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -137,11 +137,11 @@
   <div class="demo-icon">cc</div>
   <div class="demo-main">
     <div class="demo-top">
-      <span class="demo-app">cc-notify-hooks</span>
+      <span class="demo-app">codex-push-hooks</span>
       <span class="demo-time">now</span>
     </div>
     <div class="demo-title">Codex · Reply needed 🔔</div>
-    <div class="demo-body">[cc-notify-hooks] Fix scope · Questions: 2 · Session 019eabcd</div>
+    <div class="demo-body">[codex-push-hooks] Fix scope · Questions: 2 · Session 019eabcd</div>
   </div>
   <button class="demo-close" type="button" aria-label="Dismiss notification" onclick="hideDemoNotice()">×</button>
 </div>
@@ -150,10 +150,10 @@
 <header class="hero">
   <span class="badge">v2.4.0 · Claude Code · Codex · Reasonix · dsh</span>
   <h1>Humans can idle<br><em>agents cannot</em></h1>
-  <p class="subtitle">cc-notify-hooks — the attention scheduler for the agent era. Short-delay notifications interrupt you instantly, card-style fallback notifications catch what you missed, and Claude Code, Codex CLI, Reasonix, and dsh never spin idle waiting for you.</p>
+  <p class="subtitle">codex-push-hooks — the attention scheduler for the agent era. Short-delay notifications interrupt you instantly, card-style fallback notifications catch what you missed, and Claude Code, Codex CLI, Reasonix, and dsh never spin idle waiting for you.</p>
   <div class="hero-cta">
     <a href="#install" class="btn btn-primary">Install now</a>
-    <a href="https://github.com/MarioZZJ/cc-notify-hooks" class="btn btn-outline">GitHub</a>
+    <a href="https://github.com/bohdankordon/codex-push-hooks" class="btn btn-outline">GitHub</a>
   </div>
   <div class="scroll-hint" style="color:var(--text2);font-size:.8rem">&#8595;</div>
 </header>
@@ -199,14 +199,14 @@
     <div class="template-card">
       <strong>Choose the scope of this fix</strong>
       <dl>
-        <dt>Project</dt><dd>cc-notify-hooks</dd>
+        <dt>Project</dt><dd>codex-push-hooks</dd>
         <dt>Event</dt><dd>PreToolUse</dd>
         <dt>Tool</dt><dd>request_user_input</dd>
         <dt>Questions</dt><dd>2</dd>
         <dt>Options</dt><dd>Full fix / Minimal patch</dd>
         <dt>Session</dt><dd>019eabcd-1234-5678</dd>
       </dl>
-      <p style="margin-top:.8rem;color:var(--text2);font-size:.78rem">GPT-5 · /Users/mariozzj/Documents/project/cc-notify-hooks · Mario5Air</p>
+      <p style="margin-top:.8rem;color:var(--text2);font-size:.78rem">GPT-5 · /Users/mariozzj/Documents/project/codex-push-hooks · Mario5Air</p>
     </div>
   </div>
 </section>
@@ -214,7 +214,7 @@
 <!-- Manifesto -->
 <section>
   <div class="manifesto">
-    <blockquote>In the agent era, the bottleneck is not compute — <em>it is your attention</em>.<br>cc-notify-hooks hands the allocation of that attention back to you.</blockquote>
+    <blockquote>In the agent era, the bottleneck is not compute — <em>it is your attention</em>.<br>codex-push-hooks hands the allocation of that attention back to you.</blockquote>
     <p>No staring at the terminal. No switching windows. When an agent needs you, it will find you.</p>
   </div>
 </section>
@@ -299,37 +299,37 @@
   </div>
   <div class="tab-content active" id="tab0">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Inside Claude Code, run:</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>/plugin marketplace add MarioZZJ/cc-notify-hooks
-/plugin install cc-notify-hooks@cc-notify-hooks</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">After installing, run <code>/cc-notify-hooks:config</code> to start the interactive configuration wizard.</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>/plugin marketplace add bohdankordon/codex-push-hooks
+/plugin install codex-push-hooks@codex-push-hooks</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">After installing, run <code>/codex-push-hooks:config</code> to start the interactive configuration wizard.</p>
   </div>
   <div class="tab-content" id="tab1">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Add the marketplace and install the plugin:</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>codex plugin marketplace add MarioZZJ/cc-notify-hooks --ref v2.4.0
-codex plugin add cc-notify-hooks@cc-notify-hooks</code></pre>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>codex plugin marketplace add bohdankordon/codex-push-hooks
+codex plugin add codex-push-hooks@codex-push-hooks</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Enable hooks in <code>~/.codex/config.toml</code> (required):</p>
     <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>[features]
 codex_hooks = true</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The marketplace lives at the repository root; the actual plugin directory is <code>plugins/cc-notify-hooks/</code>.</p>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The marketplace lives at the repository root; the actual plugin directory is <code>plugins/codex-push-hooks/</code>.</p>
     <p style="color:var(--text2);font-size:.85rem;margin-top:.75rem">Codex hooks use <code>PLUGIN_ROOT</code> to locate the scripts and <code>PLUGIN_DATA</code> to store configuration and session state, so they do not depend on a fixed cache path. After installing or upgrading, review and trust the changed hooks under <code>/hooks</code>.</p>
   </div>
   <div class="tab-content" id="tab2">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">Reasonix reads <code>reasonix-plugin.json</code> from the repository natively (5 hooks, Claude-shaped payloads):</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>reasonix plugin install git:github.com/MarioZZJ/cc-notify-hooks --yes</code></pre>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>reasonix plugin install git:github.com/bohdankordon/codex-push-hooks --yes</code></pre>
     <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">For local development, link the install so repository changes take effect immediately:</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
-reasonix plugin install ./cc-notify-hooks/plugins/cc-notify-hooks --link --yes</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Configuration is written to <code>~/.reasonix/cc-notify-hooks/notify.json</code>; restart the Reasonix session after installing (<code>/new</code> does not reload hooks).</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/bohdankordon/codex-push-hooks.git
+reasonix plugin install ./codex-push-hooks/plugins/codex-push-hooks --link --yes</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">Configuration is written to <code>~/.reasonix/codex-push-hooks/notify.json</code>; restart the Reasonix session after installing (<code>/new</code> does not reload hooks).</p>
   </div>
   <div class="tab-content" id="tab3">
     <p style="color:var(--text2);font-size:.9rem;margin-bottom:1rem">dsh has no external shell hooks; the repository ships a zero-dependency host plugin that subscribes directly to dsh interception points (approvals, turn ends, questions, and more):</p>
-    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
-cd cc-notify-hooks && bash install/dsh.sh</code></pre>
-    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The installer symlinks the plugin into <code>~/node_modules/@dsh-local/dsh-cc-notify</code> and appends an insert entry to <code>~/.dsh/cordis.patch.yml</code> — dsh hot-loads it, so running sessions pick it up immediately.</p>
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/bohdankordon/codex-push-hooks.git
+cd codex-push-hooks && bash install/dsh.sh</code></pre>
+    <p style="color:var(--text2);font-size:.85rem;margin-top:1rem">The installer symlinks the plugin into <code>~/node_modules/@dsh-local/codex-push-hooks</code> and appends an insert entry to <code>~/.dsh/cordis.patch.yml</code> — dsh hot-loads it, so running sessions pick it up immediately.</p>
   </div>
   <div class="tab-content" id="tab4">
-    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/MarioZZJ/cc-notify-hooks.git
-cd cc-notify-hooks
+    <pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code>git clone https://github.com/bohdankordon/codex-push-hooks.git
+cd codex-push-hooks
 bash install.sh                  # interactively choose a target
 bash install.sh claude           # install into Claude Code directly
 bash install.sh codex            # install into Codex CLI directly
@@ -382,12 +382,12 @@ bash install.sh dsh              # install into dsh (DeepSeek Harness) directly<
   <p style="color:var(--text2);margin-bottom:2rem;font-size:1.05rem">Two commands, and your Claude Code, Codex, Reasonix, and dsh never sit idle again.</p>
   <div class="hero-cta">
     <a href="#install" class="btn btn-primary">Install now</a>
-    <a href="https://github.com/MarioZZJ/cc-notify-hooks" class="btn btn-outline">GitHub</a>
+    <a href="https://github.com/bohdankordon/codex-push-hooks" class="btn btn-outline">GitHub</a>
   </div>
 </section>
 
 <footer>
-  <p>MIT License &middot; Made by <a href="https://github.com/MarioZZJ">MarioZZJ</a> &middot; <a href="https://github.com/MarioZZJ/cc-notify-hooks">Source Code</a></p>
+  <p>MIT License &middot; <a href="https://github.com/bohdankordon/codex-push-hooks">Source Code</a> &middot; Based on <a href="https://github.com/MarioZZJ/cc-notify-hooks">cc-notify-hooks</a> by <a href="https://github.com/MarioZZJ">MarioZZJ</a></p>
 </footer>
 
 <script>

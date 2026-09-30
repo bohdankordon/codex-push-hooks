@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks standalone install script (dsh / DeepSeek Harness branch)
-# Writes the configuration to ~/.dsh/cc-notify-hooks/notify.json,
-# symlinks the plugin package into ~/node_modules/@dsh-local/dsh-cc-notify,
+# codex-push-hooks standalone install script (dsh / DeepSeek Harness branch)
+# Writes the configuration to ~/.dsh/codex-push-hooks/notify.json,
+# symlinks the plugin package into ~/node_modules/@dsh-local/codex-push-hooks,
 # and appends an insert entry to ~/.dsh/cordis.patch.yml (hot-loaded, no restart needed).
 #
 # Can be called by the install.sh router or run on its own:
@@ -11,16 +11,19 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_PKG_DIR="${REPO_ROOT}/plugins/cc-notify-hooks/dsh-plugin"
-SCRIPTS_DIR="${REPO_ROOT}/plugins/cc-notify-hooks/scripts"
+PLUGIN_PKG_DIR="${REPO_ROOT}/plugins/codex-push-hooks/dsh-plugin"
+SCRIPTS_DIR="${REPO_ROOT}/plugins/codex-push-hooks/scripts"
 DSH_HOME_DIR="${DSH_HOME:-${HOME}/.dsh}"
-INSTALL_DIR="${DSH_HOME_DIR}/cc-notify-hooks"
+INSTALL_DIR="${DSH_HOME_DIR}/codex-push-hooks"
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
 STATE_DIR="${HOME}/.claude/hooks/state"  # shared state directory for all agents
 PATCH_FILE="${DSH_HOME_DIR}/cordis.patch.yml"
 NODE_MODULES_DIR="${HOME}/node_modules/@dsh-local"
-PLUGIN_LINK="${NODE_MODULES_DIR}/dsh-cc-notify"
-PLUGIN_ENTRY_ID="cc-notify-hooks"
+PLUGIN_LINK="${NODE_MODULES_DIR}/codex-push-hooks"
+PLUGIN_ENTRY_ID="codex-push-hooks"
+# Legacy pre-rebrand identifiers (migration only; never installed fresh).
+LEGACY_ENTRY_ID="cc-notify-hooks"
+LEGACY_LINK="${NODE_MODULES_DIR}/dsh-cc-notify"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -33,7 +36,7 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - dsh standalone install"
+echo "  codex-push-hooks - dsh standalone install"
 echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
@@ -101,11 +104,15 @@ _read_json() {
     echo "$default"
 }
 
-# Reuse an existing configuration (Claude / Codex / Reasonix) so credentials are not entered twice
+# Reuse an existing configuration (own legacy path first, then Claude / Codex / Reasonix)
+# so credentials are not entered twice. Legacy files are copied, never moved or deleted.
 if [ ! -f "$CONFIG_FILE" ]; then
     for existing in \
+        "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" \
         "${HOME}/.claude/hooks/notify.json" \
+        "${CODEX_HOME:-${HOME}/.codex}/codex-push-hooks/notify.json" \
         "${CODEX_HOME:-${HOME}/.codex}/cc-notify-hooks/notify.json" \
+        "${REASONIX_HOME:-${HOME}/.reasonix}/codex-push-hooks/notify.json" \
         "${REASONIX_HOME:-${HOME}/.reasonix}/cc-notify-hooks/notify.json"; do
         if [ -f "$existing" ]; then
             echo -e "  ${CYAN}Existing configuration detected; it can be reused${NC}"
@@ -267,26 +274,174 @@ echo -e "  ${GREEN}✓${NC} configuration written to $CONFIG_FILE"
 # ============================================================
 #  [3/5] Symlink the plugin package (~/.node_modules resolution path, same as dsh-feishu)
 # ============================================================
-echo -e "${YELLOW}[3/5]${NC} linking the plugin package..."
+echo -e "${YELLOW}[3/5]${NC} inspecting the dsh plugin state and linking the package..."
+
+PATCH_BLOCK="
+- insert:
+    - id: ${PLUGIN_ENTRY_ID}
+      name: '@dsh-local/codex-push-hooks'
+      config:
+        scriptsDir: ${SCRIPTS_DIR}
+        stateDir: ${STATE_DIR}"
+
+# Print one patch entry block: the id line plus following lines up to (but
+# not including) the next entry boundary or EOF. Entry matching is anchored
+# to real YAML list items so comments never count as entries.
+print_patch_block() {
+    local patch_file="$1"
+    local entry_id="$2"
+    awk -v id="$entry_id" '
+        BEGIN { in_block = 0 }
+        $0 ~ "^[[:space:]]*- id: " id "[[:space:]]*$" && in_block == 0 { in_block = 1; print; next }
+        in_block == 1 {
+            if ($0 ~ /^- insert:/ || $0 ~ /^[[:space:]]*- id: /) { exit }
+            print
+        }
+    ' "$patch_file"
+}
+
+# True when the legacy entry has exactly the known installer-generated shape.
+# Every check is an anchored line match inside that same entry block.
+legacy_block_valid() {
+    local patch_file="$1"
+    local block
+    block="$(print_patch_block "$patch_file" "$LEGACY_ENTRY_ID")"
+    [ -n "$block" ] || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*name:[[:space:]]*'@dsh-local/dsh-cc-notify'[[:space:]]*$" || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*scriptsDir:[[:space:]]*.*plugins/cc-notify-hooks/scripts[[:space:]]*$" || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*stateDir:[[:space:]]*[^[:space:]]+[[:space:]]*$" || return 1
+    return 0
+}
+
+# True when the migrated entry carries the canonical values.
+migrated_block_valid() {
+    local patch_file="$1"
+    local block
+    block="$(print_patch_block "$patch_file" "$PLUGIN_ENTRY_ID")"
+    [ -n "$block" ] || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*name:[[:space:]]*'@dsh-local/codex-push-hooks'[[:space:]]*$" || return 1
+    printf '%s\n' "$block" | grep -qE "^[[:space:]]*scriptsDir:[[:space:]]*.*plugins/codex-push-hooks/scripts[[:space:]]*$" || return 1
+    return 0
+}
+
+# Remove the legacy node_modules symlink only. Never touches real directories.
+remove_legacy_link() {
+    if [ -L "$LEGACY_LINK" ]; then
+        rm -f "$LEGACY_LINK"
+        echo -e "  ${CYAN}removed the legacy link $LEGACY_LINK${NC}"
+    fi
+}
+
+# Rewrite a pre-rebrand legacy insert entry in place (id, scoped package
+# name, and scripts directory). Only lines inside the legacy entry are
+# touched. Callers must validate the block shape first.
+migrate_legacy_patch_entry() {
+    local patch_file="$1"
+    local tmp_out="${patch_file}.tmp.$$"
+    awk '
+        in_legacy == 0 && /^[[:space:]]*- id: cc-notify-hooks[[:space:]]*$/ { in_legacy = 1; sub(/cc-notify-hooks[[:space:]]*$/, "codex-push-hooks") }
+        in_legacy == 1 && /@dsh-local\/dsh-cc-notify/ { sub(/@dsh-local\/dsh-cc-notify/, "@dsh-local/codex-push-hooks") }
+        in_legacy == 1 && /scriptsDir:.*plugins\/cc-notify-hooks\/scripts/ { sub(/plugins\/cc-notify-hooks\/scripts/, "plugins/codex-push-hooks/scripts") }
+        { print }
+        in_legacy == 1 && /^[[:space:]]*stateDir:/ { in_legacy = 0 }
+    ' "$patch_file" > "$tmp_out" && mv "$tmp_out" "$patch_file"
+}
+
+# Preflight: inspect the patch state BEFORE creating, replacing, or removing
+# either plugin symlink. Entry detection is anchored to real YAML list items,
+# so a comment mentioning an id never counts as an entry.
+CANONICAL_PRESENT=false
+LEGACY_PRESENT=false
+if [ -f "$PATCH_FILE" ]; then
+    if grep -qE "^[[:space:]]*- id: ${PLUGIN_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE"; then
+        CANONICAL_PRESENT=true
+    fi
+    if grep -qE "^[[:space:]]*- id: ${LEGACY_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE"; then
+        LEGACY_PRESENT=true
+    fi
+fi
+
+# Fatal patch states exit here with both plugin links unchanged.
+if $CANONICAL_PRESENT && $LEGACY_PRESENT; then
+    echo -e "  ${RED}✗${NC} $PATCH_FILE contains both a ${PLUGIN_ENTRY_ID} entry and a legacy ${LEGACY_ENTRY_ID} entry."
+    echo -e "  ${YELLOW}Both integrations would fire at once. Neither entry was changed and no plugin link was touched.${NC}"
+    echo -e "  ${YELLOW}Remove the legacy ${LEGACY_ENTRY_ID} entry manually, then re-run this installer.${NC}"
+    exit 1
+elif $LEGACY_PRESENT && ! legacy_block_valid "$PATCH_FILE"; then
+    echo -e "  ${RED}✗${NC} the legacy ${LEGACY_ENTRY_ID} entry does not have the expected shape."
+    echo -e "  ${YELLOW}$PATCH_FILE and both plugin links were left unchanged.${NC}"
+    echo -e "  ${YELLOW}To recover manually:${NC}"
+    echo -e "    1. Inspect the ${LEGACY_ENTRY_ID} entry in $PATCH_FILE."
+    echo -e "    2. Delete that entry, or update it to id ${PLUGIN_ENTRY_ID} with name '@dsh-local/codex-push-hooks' and a codex-push-hooks scriptsDir."
+    echo -e "    3. Re-run this installer."
+    exit 1
+fi
+
+# Preflight passed: snapshot the canonical link state so a later failure can
+# restore it, then create/update the canonical link.
+# The managed link path must never clobber real user content: only an absent
+# path or an existing symlink is safe. A broken symlink still counts as a
+# symlink ([ -e ] is false for it, [ -L ] is true), so it passes through.
+if [ -e "$PLUGIN_LINK" ] && [ ! -L "$PLUGIN_LINK" ]; then
+    echo -e "  ${RED}✗${NC} $PLUGIN_LINK already exists and is not a symlink."
+    echo -e "  ${YELLOW}Its contents were left untouched, as was $PATCH_FILE.${NC}"
+    echo -e "  ${YELLOW}Move or remove that path manually, then re-run this installer.${NC}"
+    exit 1
+fi
+LINK_WAS_PRESENT=false
+LINK_WAS_LINK=false
+LINK_TARGET=""
+if [ -L "$PLUGIN_LINK" ]; then
+    LINK_WAS_PRESENT=true
+    LINK_WAS_LINK=true
+    LINK_TARGET="$(readlink "$PLUGIN_LINK")"
+elif [ -e "$PLUGIN_LINK" ]; then
+    LINK_WAS_PRESENT=true
+fi
 mkdir -p "$NODE_MODULES_DIR"
 ln -sfn "$PLUGIN_PKG_DIR" "$PLUGIN_LINK"
 echo -e "  ${GREEN}✓${NC} $PLUGIN_LINK -> $PLUGIN_PKG_DIR"
+
+restore_link_state() {
+    # Best-effort rollback of the canonical link; never deletes real content.
+    if $LINK_WAS_LINK; then
+        ln -sfn "$LINK_TARGET" "$PLUGIN_LINK"
+    elif ! $LINK_WAS_PRESENT && [ -L "$PLUGIN_LINK" ]; then
+        rm -f "$PLUGIN_LINK"
+    fi
+}
 
 # ============================================================
 #  [4/5] Write ~/.dsh/cordis.patch.yml
 # ============================================================
 echo -e "${YELLOW}[4/5]${NC} writing the dsh plugin configuration..."
 
-PATCH_BLOCK="
-- insert:
-    - id: ${PLUGIN_ENTRY_ID}
-      name: '@dsh-local/dsh-cc-notify'
-      config:
-        scriptsDir: ${SCRIPTS_DIR}
-        stateDir: ${STATE_DIR}"
+# Patch block, entry helpers, and migration live in the step [3/5] preflight above.
 
-if [ -f "$PATCH_FILE" ] && grep -q "id: ${PLUGIN_ENTRY_ID}$" "$PATCH_FILE"; then
-    echo -e "  ${YELLOW}⚠${NC} $PATCH_FILE already has an ${PLUGIN_ENTRY_ID} entry; skipping the write"
+# Preflight already ruled out duplicate entries and invalid legacy shapes,
+# and no patch write happened since, so these flags are still accurate.
+if $CANONICAL_PRESENT; then
+    echo -e "  ${YELLOW}⚠${NC} $PATCH_FILE already has a ${PLUGIN_ENTRY_ID} entry; skipping the write"
+    # No legacy entry references the old link, so the stale link can go.
+    remove_legacy_link
+elif $LEGACY_PRESENT; then
+    BACKUP="${PATCH_FILE}.backup.$(date +%Y%m%d%H%M%S)"
+    cp "$PATCH_FILE" "$BACKUP"
+    echo "  backed up the original configuration to: $BACKUP"
+    migrate_legacy_patch_entry "$PATCH_FILE"
+    if [ "$(grep -cE "^[[:space:]]*- id: ${PLUGIN_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE")" = "1" ] \
+        && ! grep -qE "^[[:space:]]*- id: ${LEGACY_ENTRY_ID}[[:space:]]*$" "$PATCH_FILE" \
+        && migrated_block_valid "$PATCH_FILE"; then
+        echo -e "  ${GREEN}✓${NC} migrated the legacy ${LEGACY_ENTRY_ID} entry to ${PLUGIN_ENTRY_ID} (no duplicate registration)"
+        # The migrated entry no longer references the old link.
+        remove_legacy_link
+    else
+        cp "$BACKUP" "$PATCH_FILE"
+        restore_link_state
+        echo -e "  ${RED}✗${NC} post-migration verification failed; restored $PATCH_FILE from the backup and rolled back the canonical link."
+        echo -e "  ${YELLOW}Reconcile the entries manually, then re-run this installer.${NC}"
+        exit 1
+    fi
 else
     if [ -f "$PATCH_FILE" ] && [ -s "$PATCH_FILE" ]; then
         BACKUP="${PATCH_FILE}.backup.$(date +%Y%m%d%H%M%S)"
@@ -298,6 +453,8 @@ else
         printf '%s\n' "$PATCH_BLOCK" > "$PATCH_FILE"
     fi
     echo -e "  ${GREEN}✓${NC} wrote the ${PLUGIN_ENTRY_ID} entry to $PATCH_FILE"
+    # Fresh canonical entry; no legacy entry references the old link.
+    remove_legacy_link
 fi
 mkdir -p "$STATE_DIR"
 
@@ -351,6 +508,6 @@ echo "    agent/turn-stopping → push when a turn ends (task complete ✅)"
 echo "    agent/pre-step      → cancel queued pushes once the user responds"
 echo "    tools/pre-execute   → push for ask_user_question (reply needed 🔔)"
 echo ""
-echo "  Uninstall: delete the cc-notify-hooks entry from $PATCH_FILE and remove $PLUGIN_LINK"
+echo "  Uninstall: delete the codex-push-hooks entry from $PATCH_FILE and remove $PLUGIN_LINK"
 echo "  Change the configuration: edit $CONFIG_FILE"
 echo "========================================="

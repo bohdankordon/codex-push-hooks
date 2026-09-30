@@ -1,1 +1,1 @@
-plugins/cc-notify-hooks/test_notify.sh
+plugins/codex-push-hooks/test_notify.sh

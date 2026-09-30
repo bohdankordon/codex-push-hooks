@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks standalone install entry point (router)
+# codex-push-hooks standalone install entry point (router)
 #
 # Usage:
 #   bash install.sh           # choose a target interactively
@@ -31,7 +31,7 @@ TARGET="${1:-}"
 
 if [ -z "$TARGET" ]; then
     echo "========================================="
-    echo "  cc-notify-hooks - standalone install"
+    echo "  codex-push-hooks - standalone install"
     echo "========================================="
     echo ""
     echo "  Choose which tool to install into:"

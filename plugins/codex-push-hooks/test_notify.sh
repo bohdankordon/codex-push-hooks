@@ -13,6 +13,8 @@
 #   bash test_notify.sh state         # verify session-scoped state, deduplication, and clearing
 #   bash test_notify.sh render        # verify the notification title and body templates
 #   bash test_notify.sh agents        # verify Reasonix / dsh agent detection and event fields
+#   bash test_notify.sh config-paths  # verify canonical config discovery, legacy fallback, and precedence
+#   bash test_notify.sh install-smoke  # verify installer canonical paths and legacy migration (no real credentials)
 
 set -euo pipefail
 
@@ -28,20 +30,37 @@ NC='\033[0m'
 # Find the configuration file (same order as scripts/notify.sh)
 CONFIG_FILE=""
 CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
+REASONIX_HOME_DIR="${REASONIX_HOME:-${HOME}/.reasonix}"
+DSH_HOME_DIR="${DSH_HOME:-${HOME}/.dsh}"
 if [ -n "${CC_NOTIFY_CONFIG:-}" ] && [ -f "${CC_NOTIFY_CONFIG}" ]; then
     CONFIG_FILE="${CC_NOTIFY_CONFIG}"
 elif [ -n "${PLUGIN_DATA:-}" ] && [ -f "${PLUGIN_DATA}/notify.json" ]; then
     CONFIG_FILE="${PLUGIN_DATA}/notify.json"
 elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "${CLAUDE_PLUGIN_DATA}/notify.json" ]; then
     CONFIG_FILE="${CLAUDE_PLUGIN_DATA}/notify.json"
+elif [ -f "${CODEX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
+    CONFIG_FILE="${CODEX_HOME_DIR}/codex-push-hooks/notify.json"
+elif [ -f "${REASONIX_HOME_DIR}/codex-push-hooks/notify.json" ]; then
+    CONFIG_FILE="${REASONIX_HOME_DIR}/codex-push-hooks/notify.json"
+elif [ -f "${DSH_HOME_DIR}/codex-push-hooks/notify.json" ]; then
+    CONFIG_FILE="${DSH_HOME_DIR}/codex-push-hooks/notify.json"
 elif [ -f "${CODEX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: every canonical path above takes precedence over
+    # every legacy path here, so a legacy file can never shadow a canonical
+    # configuration from another agent.
     CONFIG_FILE="${CODEX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: see above.
+    CONFIG_FILE="${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json"
+elif [ -f "${DSH_HOME_DIR}/cc-notify-hooks/notify.json" ]; then
+    # Legacy fallback: see above.
+    CONFIG_FILE="${DSH_HOME_DIR}/cc-notify-hooks/notify.json"
 elif [ -f "${HOME}/.claude/hooks/notify.json" ]; then
     CONFIG_FILE="${HOME}/.claude/hooks/notify.json"
 fi
 
 echo "========================================="
-echo "  cc-notify-hooks - connectivity tests"
+echo "  codex-push-hooks - connectivity tests"
 echo "========================================="
 echo ""
 
@@ -51,7 +70,9 @@ if [ -z "$CONFIG_FILE" ] &&
    [ "$COMMAND" != "codex-plugin-hooks" ] &&
    [ "$COMMAND" != "user-input" ] &&
    [ "$COMMAND" != "state" ] &&
-   [ "$COMMAND" != "render" ]; then
+   [ "$COMMAND" != "render" ] &&
+   [ "$COMMAND" != "config-paths" ] &&
+   [ "$COMMAND" != "install-smoke" ]; then
     echo -e "${RED}No configuration file found${NC}"
     echo "  Run bash install.sh first, or copy config/notify.example.json to"
     echo "  ~/.claude/hooks/notify.json"
@@ -92,7 +113,7 @@ test_channel() {
             return 0
         fi
         source "$ch_file"
-        send_macos "cc-notify-hooks test" "Push notification connectivity test" "$config"
+        send_macos "codex-push-hooks test" "Push notification connectivity test" "$config"
         echo -e "${GREEN}[${name}]${NC} ✅ sent, check your system notifications"
         return 0
     fi
@@ -105,7 +126,7 @@ test_channel() {
     result=$(
         # Replace curl inside the send function so it emits the status code
         _original_curl=$(which curl)
-        send_${name} "cc-notify-hooks Test" "Push notification connectivity test" "$config" 2>&1
+        send_${name} "codex-push-hooks Test" "Push notification connectivity test" "$config" 2>&1
         echo "SEND_DONE"
     )
 
@@ -220,14 +241,14 @@ test_codex_plugin_hooks() {
         local tmp_base tmp_root tmp_home plugin_data custom_codex_home
         local stop_cmd clear_cmd pre_cmd post_cmd out
         tmp_base="${TMPDIR:-/tmp}"
-        tmp_root=$(mktemp -d "${tmp_base%/}/cc-notify-hooks.XXXXXX")
+        tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks.XXXXXX")
         trap 'rm -rf "$tmp_root"' EXIT
         tmp_home="${tmp_root}/home"
         plugin_data="${tmp_root}/plugin-data"
         custom_codex_home="${tmp_root}/custom-codex"
-        mkdir -p "$tmp_home" "$plugin_data/state" "${custom_codex_home}/cc-notify-hooks"
+        mkdir -p "$tmp_home" "$plugin_data/state" "${custom_codex_home}/codex-push-hooks"
         printf '%s\n' '{"channels":{},"rate_limit":10}' > "${plugin_data}/notify.json"
-        printf '%s\n' '{"channels":{},"rate_limit":10}' > "${custom_codex_home}/cc-notify-hooks/notify.json"
+        printf '%s\n' '{"channels":{},"rate_limit":10}' > "${custom_codex_home}/codex-push-hooks/notify.json"
 
         stop_cmd=$(jq -r '.hooks.Stop[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
         clear_cmd=$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' "${SCRIPT_DIR}/hooks/codex-hooks.json")
@@ -287,7 +308,7 @@ test_user_input_flow() {
         local capture_file feishu_payload discord_payload
         local bash_bin minimal_bin
         tmp_base="${TMPDIR:-/tmp}"
-        tmp_root=$(mktemp -d "${tmp_base%/}/cc-notify-hooks-user-input.XXXXXX")
+        tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-user-input.XXXXXX")
         trap 'rm -rf "$tmp_root"' EXIT
         state_dir="${tmp_root}/state"
         mkdir -p "$state_dir"
@@ -404,7 +425,7 @@ test_session_state() {
         local tmp_base tmp_root state_dir config_file event_a event_a_new event_b
         local first_pending repeated_pending new_pending
         tmp_base="${TMPDIR:-/tmp}"
-        tmp_root=$(mktemp -d "${tmp_base%/}/cc-notify-hooks-state.XXXXXX")
+        tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-state.XXXXXX")
         trap 'rm -rf "$tmp_root"' EXIT
         state_dir="${tmp_root}/state"
         config_file="${tmp_root}/notify.json"
@@ -607,7 +628,7 @@ test_agent_detection() {
     # Reasonix plugin import format (Claude-shaped payload + REASONIX_PLUGIN_ROOT environment)
     out=$(
         printf '%s' '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"approval needed: bash git push origin main","session_id":"reasonix-session-1","cwd":"/tmp/demo-project"}' \
-            | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/cc-notify-hooks" \
+            | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/codex-push-hooks" \
                 CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" notification
     )
     title=$(echo "$out" | jq -r '.title')
@@ -622,7 +643,7 @@ test_agent_detection() {
     # Reasonix native payload format (event / sessionId / lastAssistantText)
     out=$(
         printf '%s' '{"event":"Stop","sessionId":"reasonix-session-2","cwd":"/tmp/demo-project","lastAssistantText":"Checks finished","turn":1}' \
-            | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/cc-notify-hooks" \
+            | REASONIX_PLUGIN_ROOT="/fake/reasonix/plugins/codex-push-hooks" \
                 CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/notify.sh" stop
     )
     title=$(echo "$out" | jq -r '.title')
@@ -670,6 +691,379 @@ test_agent_detection() {
     echo -e "${GREEN}[Agent detection]${NC} ✅ Reasonix / dsh / override order behave as expected"
 }
 
+# Verify canonical discovery, legacy fallback, and precedence for the
+# Codex / Reasonix / dsh standalone configuration paths.
+# No real credentials or notifications: curl is stubbed and every webhook
+# points at example.invalid; only the selected marker URL is captured.
+test_config_paths() {
+    (
+        set -euo pipefail
+        echo -e "${YELLOW}[Config Paths]${NC} verifying canonical discovery, legacy fallback, and precedence..."
+
+        local tmp_base tmp_root agent subdir case_dir fake_home override_file
+        tmp_base="${TMPDIR:-/tmp}"
+        tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-config-paths.XXXXXX")
+        trap 'rm -rf "$tmp_root"' EXIT
+
+        # Stub network access: record the webhook URL instead of posting.
+        curl() { printf '%s\n' "$@" > "${CURL_CAPTURE:-/dev/null}"; return 0; }
+        export -f curl
+
+        write_marker_config() {
+            # $1 = config file, $2 = marker embedded in the webhook URL
+            local cfg="$1" marker="$2"
+            mkdir -p "$(dirname "$cfg")"
+            printf '%s\n' '{"channels":{"feishu":{"enabled":true,"delay":0,"webhook":"https://example.invalid/'"$marker"'"}}}' > "$cfg"
+        }
+
+        run_lookup_case() {
+            # $1 = case name, $2 = expected marker, remaining args = VAR=value environment
+            local case_name="$1" expected="$2"
+            shift 2
+            local dir="${tmp_root}/${case_name}" capture="${tmp_root}/${case_name}/curl-args"
+            mkdir -p "$dir"
+            rm -f "$capture"
+            printf '%s' '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"approval needed","session_id":"cfgpath-'"$case_name"'","cwd":"/tmp/demo-project"}' \
+                | CC_NOTIFY_CONFIG= PLUGIN_DATA= CLAUDE_PLUGIN_DATA= \
+                  CURL_CAPTURE="$capture" CC_NOTIFY_STATE_DIR="${dir}/state" \
+                  env "$@" \
+                  bash "${SCRIPT_DIR}/scripts/notify.sh" notification
+            local waited=0
+            while [ ! -f "$capture" ] && [ "$waited" -lt 30 ]; do
+                sleep 0.5
+                waited=$((waited + 1))
+            done
+            if [ ! -f "$capture" ]; then
+                echo -e "${RED}[Config Paths]${NC} ${case_name}: no notification was sent (is jq installed?)"
+                return 1
+            fi
+            if ! grep -q "$expected" "$capture"; then
+                echo -e "${RED}[Config Paths]${NC} ${case_name}: expected marker ${expected}, got: $(cat "$capture")"
+                return 1
+            fi
+            echo -e "  ${case_name}: ${expected} ✅"
+        }
+
+        for agent in codex reasonix dsh; do
+            case "$agent" in
+                codex) subdir=".codex" ;;
+                reasonix) subdir=".reasonix" ;;
+                dsh) subdir=".dsh" ;;
+            esac
+
+            # 1. canonical discovery
+            case_dir="${tmp_root}/${agent}-canonical"
+            fake_home="${case_dir}/home"
+            write_marker_config "${fake_home}/${subdir}/codex-push-hooks/notify.json" "canonical-${agent}"
+            run_lookup_case "${agent}-canonical" "canonical-${agent}" \
+                HOME="$fake_home" \
+                CODEX_HOME="${fake_home}/.codex" \
+                REASONIX_HOME="${fake_home}/.reasonix" \
+                DSH_HOME="${fake_home}/.dsh"
+
+            # 2. legacy fallback
+            case_dir="${tmp_root}/${agent}-legacy"
+            fake_home="${case_dir}/home"
+            write_marker_config "${fake_home}/${subdir}/cc-notify-hooks/notify.json" "legacy-${agent}"
+            run_lookup_case "${agent}-legacy" "legacy-${agent}" \
+                HOME="$fake_home" \
+                CODEX_HOME="${fake_home}/.codex" \
+                REASONIX_HOME="${fake_home}/.reasonix" \
+                DSH_HOME="${fake_home}/.dsh"
+
+            # 3. canonical wins when both exist
+            case_dir="${tmp_root}/${agent}-both"
+            fake_home="${case_dir}/home"
+            write_marker_config "${fake_home}/${subdir}/codex-push-hooks/notify.json" "canonical-${agent}-both"
+            write_marker_config "${fake_home}/${subdir}/cc-notify-hooks/notify.json" "legacy-${agent}-both"
+            run_lookup_case "${agent}-both" "canonical-${agent}-both" \
+                HOME="$fake_home" \
+                CODEX_HOME="${fake_home}/.codex" \
+                REASONIX_HOME="${fake_home}/.reasonix" \
+                DSH_HOME="${fake_home}/.dsh"
+        done
+
+        # 4. a legacy path can never shadow a canonical path from another agent
+        case_dir="${tmp_root}/cross-legacy-codex-canonical-reasonix"
+        fake_home="${case_dir}/home"
+        write_marker_config "${fake_home}/.codex/cc-notify-hooks/notify.json" "legacy-codex-shadow"
+        write_marker_config "${fake_home}/.reasonix/codex-push-hooks/notify.json" "canonical-reasonix-wins"
+        run_lookup_case "cross-legacy-codex-canonical-reasonix" "canonical-reasonix-wins" \
+            HOME="$fake_home" \
+            CODEX_HOME="${fake_home}/.codex" \
+            REASONIX_HOME="${fake_home}/.reasonix" \
+            DSH_HOME="${fake_home}/.dsh"
+
+        case_dir="${tmp_root}/cross-legacy-codex-reasonix-canonical-dsh"
+        fake_home="${case_dir}/home"
+        write_marker_config "${fake_home}/.codex/cc-notify-hooks/notify.json" "legacy-codex-shadow"
+        write_marker_config "${fake_home}/.reasonix/cc-notify-hooks/notify.json" "legacy-reasonix-shadow"
+        write_marker_config "${fake_home}/.dsh/codex-push-hooks/notify.json" "canonical-dsh-wins"
+        run_lookup_case "cross-legacy-codex-reasonix-canonical-dsh" "canonical-dsh-wins" \
+            HOME="$fake_home" \
+            CODEX_HOME="${fake_home}/.codex" \
+            REASONIX_HOME="${fake_home}/.reasonix" \
+            DSH_HOME="${fake_home}/.dsh"
+
+        # 5. an explicit CC_NOTIFY_CONFIG override still wins over everything
+        case_dir="${tmp_root}/explicit-override"
+        fake_home="${case_dir}/home"
+        override_file="${case_dir}/custom.json"
+        write_marker_config "$override_file" "explicit-override"
+        write_marker_config "${fake_home}/.codex/codex-push-hooks/notify.json" "canonical-codex-ignored"
+        run_lookup_case "explicit-override" "explicit-override" \
+            HOME="$fake_home" \
+            CODEX_HOME="${fake_home}/.codex" \
+            REASONIX_HOME="${fake_home}/.reasonix" \
+            DSH_HOME="${fake_home}/.dsh" \
+            CC_NOTIFY_CONFIG="$override_file"
+
+        echo -e "${GREEN}[Config Paths]${NC} ✅ canonical discovery, legacy fallback, and precedence behave as expected"
+    )
+}
+
+# Installer smoke tests: canonical paths are written fresh, a legacy
+# configuration is reused (copied, never moved or deleted), and the dsh
+# installer migrates the legacy insert entry instead of duplicating it.
+# Everything runs under a sandboxed HOME; no real credentials are needed.
+test_install_smoke() {
+    (
+        set -euo pipefail
+        echo -e "${YELLOW}[Install Smoke]${NC} verifying canonical paths and legacy migration..."
+
+        local tmp_base tmp_root repo_root probe_dir depth codex_home stubbin reasonix_home dsh_home
+        local have_symlinks probe_src probe_link dsh_bad_home dsh_dup_home dsh_comment_home
+        local dsh_file_home dsh_dir_home
+        tmp_base="${TMPDIR:-/tmp}"
+        tmp_root=$(mktemp -d "${tmp_base%/}/codex-push-hooks-install-smoke.XXXXXX")
+        trap 'rm -rf "$tmp_root"' EXIT
+
+        # Some Windows checkouts cannot create real symlinks (ln -s degrades to
+        # a copy); link assertions below adapt, everything else is unaffected.
+        probe_src="${tmp_root}/link-probe-src"
+        probe_link="${tmp_root}/link-probe-link"
+        mkdir -p "$probe_src"
+        ln -s "$probe_src" "$probe_link" 2>/dev/null || true
+        if [ -L "$probe_link" ]; then have_symlinks=1; else have_symlinks=0; fi
+        rm -rf "$probe_src" "$probe_link"
+
+        # Locate the repository root whether the test runs through the root
+        # symlink or straight from the plugin directory.
+        repo_root=""
+        probe_dir="${SCRIPT_DIR}"
+        for depth in 1 2 3 4; do
+            if [ -f "${probe_dir}/install/codex.sh" ]; then
+                repo_root="$(cd "$probe_dir" && pwd)"
+                break
+            fi
+            probe_dir="${probe_dir}/.."
+        done
+        [ -n "$repo_root" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} repository root not found"; return 1; }
+
+        # ---- Codex: legacy config is offered and reused into the canonical path ----
+        codex_home="${tmp_root}/codex-home"
+        mkdir -p "${codex_home}/.codex/cc-notify-hooks"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-bark-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${codex_home}/.codex/cc-notify-hooks/notify.json"
+        printf 'Y\n\n\n\n\n' | HOME="$codex_home" bash "${repo_root}/install/codex.sh" >/dev/null
+        [ -f "${codex_home}/.codex/codex-push-hooks/notify.json" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} codex: canonical config was not written"; return 1; }
+        grep -q "legacy-bark-key" "${codex_home}/.codex/codex-push-hooks/notify.json" \
+            || { echo -e "${RED}[Install Smoke]${NC} codex: legacy credentials were not reused"; return 1; }
+        [ -f "${codex_home}/.codex/cc-notify-hooks/notify.json" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} codex: legacy config was destroyed"; return 1; }
+        grep -q "notify.sh notification" "${codex_home}/.codex/hooks.json" \
+            || { echo -e "${RED}[Install Smoke]${NC} codex: hooks.json was not written"; return 1; }
+        echo -e "  codex installer reuses legacy config into the canonical path ✅"
+
+        # ---- Reasonix: legacy config is reused; plugin registration is stubbed ----
+        stubbin="${tmp_root}/stubbin"
+        mkdir -p "$stubbin"
+        printf '%s\n' '#!/usr/bin/env bash' 'if [ "${1:-}" = "hook" ]; then printf "%s\n" "{\"hooks\":[]}"; fi' 'exit 0' \
+            > "${stubbin}/reasonix"
+        chmod +x "${stubbin}/reasonix"
+        reasonix_home="${tmp_root}/reasonix-home"
+        mkdir -p "${reasonix_home}/.reasonix/cc-notify-hooks"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-reasonix-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${reasonix_home}/.reasonix/cc-notify-hooks/notify.json"
+        printf 'Y\n\n\n\n\n' | HOME="$reasonix_home" PATH="${stubbin}:$PATH" bash "${repo_root}/install/reasonix.sh" >/dev/null
+        [ -f "${reasonix_home}/.reasonix/codex-push-hooks/notify.json" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} reasonix: canonical config was not written"; return 1; }
+        grep -q "legacy-reasonix-key" "${reasonix_home}/.reasonix/codex-push-hooks/notify.json" \
+            || { echo -e "${RED}[Install Smoke]${NC} reasonix: legacy credentials were not reused"; return 1; }
+        [ -f "${reasonix_home}/.reasonix/cc-notify-hooks/notify.json" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} reasonix: legacy config was destroyed"; return 1; }
+        echo -e "  reasonix installer reuses legacy config into the canonical path ✅"
+
+        # ---- dsh: legacy config reused, legacy link removed, legacy entry migrated ----
+        dsh_home="${tmp_root}/dsh-home"
+        mkdir -p "${dsh_home}/.dsh/cc-notify-hooks" "${dsh_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '- insert:' '    - id: cc-notify-hooks' "      name: '@dsh-local/dsh-cc-notify'" '      config:' '        scriptsDir: /old/clone/plugins/cc-notify-hooks/scripts' '        stateDir: /old/state' \
+            > "${dsh_home}/.dsh/cordis.patch.yml"
+        ln -s "${dsh_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_home}/node_modules/@dsh-local/dsh-cc-notify"
+        printf 'Y\n\n\n\n\n' | HOME="$dsh_home" bash "${repo_root}/install/dsh.sh" >/dev/null
+        [ -f "${dsh_home}/.dsh/codex-push-hooks/notify.json" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical config was not written"; return 1; }
+        grep -q "legacy-dsh-key" "${dsh_home}/.dsh/codex-push-hooks/notify.json" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy credentials were not reused"; return 1; }
+        [ -f "${dsh_home}/.dsh/cc-notify-hooks/notify.json" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy config was destroyed"; return 1; }
+        [ -e "${dsh_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical plugin link is missing"; return 1; }
+        if [ "$have_symlinks" = "1" ]; then
+            [ -L "${dsh_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+                || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical plugin link is not a symlink"; return 1; }
+            [ ! -L "${dsh_home}/node_modules/@dsh-local/dsh-cc-notify" ] \
+                || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy plugin link is still present"; return 1; }
+        else
+            echo -e "  (no real symlinks on this machine; skipping symlink-type assertions)"
+        fi
+        [ "$(grep -c "id: codex-push-hooks" "${dsh_home}/.dsh/cordis.patch.yml")" = "1" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: expected exactly one canonical insert entry"; return 1; }
+        grep -q "id: cc-notify-hooks" "${dsh_home}/.dsh/cordis.patch.yml" \
+            && { echo -e "${RED}[Install Smoke]${NC} dsh: legacy insert entry is still present"; return 1; }
+        grep -q "@dsh-local/codex-push-hooks" "${dsh_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: migrated entry has the wrong package name"; return 1; }
+        grep -q "plugins/codex-push-hooks/scripts" "${dsh_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: migrated entry has the wrong scriptsDir"; return 1; }
+        echo -e "  dsh installer migrates the legacy entry without duplicating ✅"
+
+        # ---- dsh rerun is idempotent: no duplicate entry ----
+        printf '\n\n\n\n\n' | HOME="$dsh_home" bash "${repo_root}/install/dsh.sh" >/dev/null
+        [ "$(grep -c "id: codex-push-hooks" "${dsh_home}/.dsh/cordis.patch.yml")" = "1" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: rerun duplicated the insert entry"; return 1; }
+        echo -e "  dsh installer rerun stays idempotent ✅"
+
+        link_intact() {
+            # $1 = path that must still exist (as a symlink where supported)
+            if [ "$have_symlinks" = "1" ]; then
+                [ -L "$1" ] || return 1
+            else
+                [ -e "$1" ] || return 1
+            fi
+            return 0
+        }
+
+        # ---- dsh B: unexpected legacy shape fails without changing anything ----
+        dsh_bad_home="${tmp_root}/dsh-bad-home"
+        mkdir -p "${dsh_bad_home}/.dsh/cc-notify-hooks" "${dsh_bad_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_bad_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-bad-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_bad_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '- insert:' '    - id: cc-notify-hooks' "      name: 'some-other-package'" '      config:' '        scriptsDir: /old/custom/scripts' '        stateDir: /old/state' \
+            > "${dsh_bad_home}/.dsh/cordis.patch.yml"
+        cp "${dsh_bad_home}/.dsh/cordis.patch.yml" "${dsh_bad_home}/.dsh/cordis.patch.yml.before"
+        ln -s "${dsh_bad_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_bad_home}/node_modules/@dsh-local/dsh-cc-notify"
+        if printf 'Y\n\n\n\n\n' | HOME="$dsh_bad_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-bad.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: unexpected-shape migration should have failed"
+            return 1
+        fi
+        cmp -s "${dsh_bad_home}/.dsh/cordis.patch.yml" "${dsh_bad_home}/.dsh/cordis.patch.yml.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was mutated on failed migration"; return 1; }
+        link_intact "${dsh_bad_home}/node_modules/@dsh-local/dsh-cc-notify" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link was removed on failed migration"; return 1; }
+        [ ! -e "${dsh_bad_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical link was created on failed migration"; return 1; }
+        grep -q "id: codex-push-hooks" "${dsh_bad_home}/.dsh/cordis.patch.yml" \
+            && { echo -e "${RED}[Install Smoke]${NC} dsh: canonical entry was partially created"; return 1; }
+        echo -e "  dsh installer refuses an unexpected legacy shape without changing anything ✅"
+
+        # ---- dsh C: canonical + legacy entries already present fails safely ----
+        dsh_dup_home="${tmp_root}/dsh-dup-home"
+        mkdir -p "${dsh_dup_home}/.dsh/cc-notify-hooks" "${dsh_dup_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_dup_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-dup-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_dup_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '- insert:' '    - id: codex-push-hooks' "      name: '@dsh-local/codex-push-hooks'" '      config:' '        scriptsDir: /repo/plugins/codex-push-hooks/scripts' '        stateDir: /repo/state' '- insert:' '    - id: cc-notify-hooks' "      name: '@dsh-local/dsh-cc-notify'" '      config:' '        scriptsDir: /old/clone/plugins/cc-notify-hooks/scripts' '        stateDir: /old/state' \
+            > "${dsh_dup_home}/.dsh/cordis.patch.yml"
+        cp "${dsh_dup_home}/.dsh/cordis.patch.yml" "${dsh_dup_home}/.dsh/cordis.patch.yml.before"
+        ln -s "${dsh_dup_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_dup_home}/node_modules/@dsh-local/dsh-cc-notify"
+        if printf 'Y\n\n\n\n\n' | HOME="$dsh_dup_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-dup.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: duplicate registration should have failed"
+            return 1
+        fi
+        cmp -s "${dsh_dup_home}/.dsh/cordis.patch.yml" "${dsh_dup_home}/.dsh/cordis.patch.yml.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was mutated on duplicate stop"; return 1; }
+        link_intact "${dsh_dup_home}/node_modules/@dsh-local/dsh-cc-notify" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link was removed on duplicate stop"; return 1; }
+        [ ! -e "${dsh_dup_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical link was created on duplicate stop"; return 1; }
+        [ "$(grep -c "id: codex-push-hooks" "${dsh_dup_home}/.dsh/cordis.patch.yml")" = "1" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: canonical entry count changed on duplicate stop"; return 1; }
+        grep -q "id: cc-notify-hooks" "${dsh_dup_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy entry vanished on duplicate stop"; return 1; }
+        echo -e "  dsh installer stops on duplicate old/new registration ✅"
+
+        # ---- dsh E: a comment mentioning an id is not a real entry ----
+        dsh_comment_home="${tmp_root}/dsh-comment-home"
+        mkdir -p "${dsh_comment_home}/.dsh/cc-notify-hooks" "${dsh_comment_home}/node_modules/@dsh-local"
+        mkdir -p "${dsh_comment_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin"
+        printf '%s\n' '{"channels":{"bark":{"enabled":true,"delay":15,"key":"legacy-dsh-comment-key","server":"https://api.day.app"}},"rate_limit":10}' \
+            > "${dsh_comment_home}/.dsh/cc-notify-hooks/notify.json"
+        printf '%s\n' '# historical example - id: codex-push-hooks (must never count as an entry)' '- insert:' '    - id: cc-notify-hooks' "      name: '@dsh-local/dsh-cc-notify'" '      config:' '        scriptsDir: /old/clone/plugins/cc-notify-hooks/scripts' '        stateDir: /old/state' \
+            > "${dsh_comment_home}/.dsh/cordis.patch.yml"
+        ln -s "${dsh_comment_home}/old-clone/plugins/cc-notify-hooks/dsh-plugin" "${dsh_comment_home}/node_modules/@dsh-local/dsh-cc-notify"
+        printf 'Y\n\n\n\n\n' | HOME="$dsh_comment_home" bash "${repo_root}/install/dsh.sh" >/dev/null
+        [ "$(grep -cE "^[[:space:]]*- id: codex-push-hooks[[:space:]]*$" "${dsh_comment_home}/.dsh/cordis.patch.yml")" = "1" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: comment confused entry detection"; return 1; }
+        ! grep -qE "^[[:space:]]*- id: cc-notify-hooks[[:space:]]*$" "${dsh_comment_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy entry was not migrated past the comment"; return 1; }
+        grep -q "historical example" "${dsh_comment_home}/.dsh/cordis.patch.yml" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: comment line was damaged by migration"; return 1; }
+        if [ "$have_symlinks" = "1" ]; then
+            [ ! -L "${dsh_comment_home}/node_modules/@dsh-local/dsh-cc-notify" ] \
+                || { echo -e "${RED}[Install Smoke]${NC} dsh: legacy link kept after comment-case migration"; return 1; }
+        fi
+        echo -e "  dsh installer ignores comment-only id mentions ✅"
+
+        # ---- dsh F: canonical path is a regular file -> refuse, keep it intact ----
+        dsh_file_home="${tmp_root}/dsh-file-home"
+        mkdir -p "${dsh_file_home}/node_modules/@dsh-local"
+        printf '%s\n' 'precious user content' > "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks"
+        cp "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks.before"
+        if printf '\n\n\n\n' | HOME="$dsh_file_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-file.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: real file at the link path should have failed"
+            return 1
+        fi
+        [ -f "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real file vanished"; return 1; }
+        [ ! -L "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real file was replaced by a symlink"; return 1; }
+        cmp -s "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks" "${dsh_file_home}/node_modules/@dsh-local/codex-push-hooks.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real file contents changed"; return 1; }
+        [ ! -e "${dsh_file_home}/.dsh/cordis.patch.yml" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was touched on link-guard failure"; return 1; }
+        echo -e "  dsh installer refuses a real file at the managed link path ✅"
+
+        # ---- dsh G: canonical path is a real directory -> refuse, keep it intact ----
+        dsh_dir_home="${tmp_root}/dsh-dir-home"
+        mkdir -p "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks"
+        printf '%s\n' 'precious user content' > "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/marker.txt"
+        cp "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/marker.txt" "${dsh_dir_home}/node_modules/@dsh-local/marker.txt.before"
+        if printf '\n\n\n\n' | HOME="$dsh_dir_home" bash "${repo_root}/install/dsh.sh" >/dev/null 2>"${tmp_root}/dsh-dir.log"; then
+            echo -e "${RED}[Install Smoke]${NC} dsh: real directory at the link path should have failed"
+            return 1
+        fi
+        [ -d "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real directory vanished"; return 1; }
+        [ ! -L "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: real directory was replaced by a symlink"; return 1; }
+        cmp -s "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/marker.txt" "${dsh_dir_home}/node_modules/@dsh-local/marker.txt.before" \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: directory contents changed"; return 1; }
+        [ ! -e "${dsh_dir_home}/node_modules/@dsh-local/codex-push-hooks/dsh-plugin" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: nested symlink created inside the real directory"; return 1; }
+        [ ! -e "${dsh_dir_home}/.dsh/cordis.patch.yml" ] \
+            || { echo -e "${RED}[Install Smoke]${NC} dsh: patch file was touched on link-guard failure"; return 1; }
+        echo -e "  dsh installer refuses a real directory at the managed link path ✅"
+
+        echo -e "${GREEN}[Install Smoke]${NC} ✅ canonical paths and legacy migration behave as expected"
+    )
+}
+
 # Main dispatch
 case "$COMMAND" in
     list)
@@ -695,6 +1089,12 @@ case "$COMMAND" in
         ;;
     agents)
         test_agent_detection
+        ;;
+    config-paths)
+        test_config_paths
+        ;;
+    install-smoke)
+        test_install_smoke
         ;;
     all)
         for ch_file in "${CHANNELS_DIR}"/*.sh; do

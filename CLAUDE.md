@@ -1,4 +1,4 @@
-# cc-notify-hooks
+# codex-push-hooks
 
 Tiered push notifications for Claude Code, Codex CLI, Reasonix, and dsh (DeepSeek Harness). Notifications are triggered through hooks/interception points, and queued pushes are cancelled automatically once the user responds.
 
@@ -11,7 +11,7 @@ Tiered push notifications for Claude Code, Codex CLI, Reasonix, and dsh (DeepSee
 ## Project structure
 
 ```
-plugins/cc-notify-hooks/    # the real plugin root (the scripts/hooks/config entries at the repository root are symlinks)
+plugins/codex-push-hooks/    # the real plugin root (the scripts/hooks/config entries at the repository root are symlinks)
 ├── scripts/notify.sh       # main dispatcher: event filtering, delayed queueing, channel fan-out (compatible with all 4 agents' fields)
 ├── scripts/clear_pending.sh# clear pending notifications (triggered on user interaction)
 ├── scripts/pre_tool_use.sh # question-tool dispatcher (request_user_input / ask / AskUserQuestion)
@@ -42,11 +42,11 @@ bash test_notify.sh bark         # test a single channel
 bash test_notify.sh hook         # simulate the Claude Code hook flow
 bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event
 bash test_notify.sh agents       # verify Reasonix / dsh agent detection
-node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit tests
+node plugins/codex-push-hooks/dsh-plugin/test/plugin.test.mjs  # dsh plugin unit tests
 
 # Run in plugin mode
-claude --plugin-dir ./cc-notify-hooks
-reasonix plugin install ./plugins/cc-notify-hooks --link --yes
+claude --plugin-dir ./codex-push-hooks
+reasonix plugin install ./plugins/codex-push-hooks --link --yes
 ```
 
 ## Core mechanics
@@ -61,10 +61,21 @@ reasonix plugin install ./plugins/cc-notify-hooks --link --yes
 Configuration file lookup order (implemented in `scripts/notify.sh`):
 1. `${CC_NOTIFY_CONFIG}` (manual override)
 2. `${PLUGIN_DATA}/notify.json` (Codex plugin mode), `${CLAUDE_PLUGIN_DATA}/notify.json` (Claude plugin mode)
-3. `~/.codex/cc-notify-hooks/notify.json` (Codex standalone mode)
-4. `~/.reasonix/cc-notify-hooks/notify.json` (Reasonix; `REASONIX_HOME` can override the base directory)
-5. `~/.dsh/cc-notify-hooks/notify.json` (dsh; `DSH_HOME` can override the base directory)
-6. `~/.claude/hooks/notify.json` (Claude standalone mode)
+3. `~/.codex/codex-push-hooks/notify.json` (Codex standalone mode)
+4. `~/.reasonix/codex-push-hooks/notify.json` (Reasonix; `REASONIX_HOME` can override the base directory)
+5. `~/.dsh/codex-push-hooks/notify.json` (dsh; `DSH_HOME` can override the base directory)
+6. `~/.codex/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
+7. `~/.reasonix/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
+8. `~/.dsh/cc-notify-hooks/notify.json` (legacy pre-rebrand fallback)
+9. `~/.claude/hooks/notify.json` (Claude standalone mode)
+
+Every canonical path (3-5) takes precedence over every legacy path (6-8),
+so a legacy file can never shadow a canonical configuration from another
+agent; the explicit `CC_NOTIFY_CONFIG` override wins over everything. The
+standalone installers offer to reuse a legacy configuration on first install
+(copied, never moved or deleted). `test_notify.sh config-paths` covers
+discovery, fallback, and precedence; `test_notify.sh install-smoke` covers
+the installer behavior.
 
 ```json
 {
@@ -97,7 +108,7 @@ Configuration file lookup order (implemented in `scripts/notify.sh`):
 
 **Codex CLI**:
 - Manifest: `.codex-plugin/plugin.json`; hook configuration: `hooks/codex-hooks.json`
-- Codex hook commands run from the session `cwd`, so `./scripts/...` does not work; in plugin mode the scripts must be located from `~/.codex/plugins/cache/*/cc-notify-hooks/*/`
+- Codex hook commands run from the session `cwd`, so `./scripts/...` does not work; in plugin mode the scripts must be located from `~/.codex/plugins/cache/*/codex-push-hooks/*/`
 - Marketplace: `.agents/plugins/marketplace.json`; the `policy` block requires `installation`/`authentication`/`category`
 - Enabling hooks requires `[features]` with `codex_hooks = true` in `~/.codex/config.toml`
 - Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)
@@ -115,9 +126,9 @@ Configuration file lookup order (implemented in `scripts/notify.sh`):
 - Host plugin in `dsh-plugin/` (cordis: `export const name` + `export function apply(ctx, config)`, zero dependencies and only Node built-ins)
 - Subscribed interception points: `approval/request` (waterfall — after observing, it must proxy with `next()`), `agent/turn-stopping` (serial, payload carries the injected `agent`), `agent/pre-step`, `tools/pre-execute` (`exec.name/arguments/callId/agent`), `tools/post-execute`, `session/event` (tracks the `assistant/message` summary)
 - The question tool is called `ask_user_question`; when forwarding, the plugin rewrites it to `request_user_input` so it reuses the parsing in pre_tool_use.sh
-- Installation (same as dsh-feishu): symlink into `~/node_modules/@dsh-local/dsh-cc-notify` + append an insert entry to `~/.dsh/cordis.patch.yml` (`name: '@dsh-local/dsh-cc-notify'`)
+- Installation (same as dsh-feishu): symlink into `~/node_modules/@dsh-local/codex-push-hooks` + append an insert entry to `~/.dsh/cordis.patch.yml` (`name: '@dsh-local/codex-push-hooks'`)
 - dsh hot-loads the home-level `~/.dsh/cordis.patch.yml` (`watchUserPatches`), so running sessions need no restart; `dsh web --dump-config` verifies the composition tree
-- Plugin tests: `node plugins/cc-notify-hooks/dsh-plugin/test/plugin.test.mjs` (stub scripts capture spawns, a mock ctx drives the events)
+- Plugin tests: `node plugins/codex-push-hooks/dsh-plugin/test/plugin.test.mjs` (stub scripts capture spawns, a mock ctx drives the events)
 
 **Shared across agents**:
 - Channel script interface: `$1` is the title, `$2` is the body, credentials come from environment variables or the configuration file
@@ -129,7 +140,7 @@ Configuration file lookup order (implemented in `scripts/notify.sh`):
 
 - Version numbers follow semantic versioning (MAJOR.MINOR.PATCH)
 - Before bumping a version you must confirm the target version with the user; never decide it on your own
-- Keep the version in sync across six manifests: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `plugins/cc-notify-hooks/reasonix-plugin.json`, `plugins/cc-notify-hooks/dsh-plugin/package.json`
+- Keep the version in sync across six manifests: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `plugins/codex-push-hooks/reasonix-plugin.json`, `plugins/codex-push-hooks/dsh-plugin/package.json`
 - Feature changes must be reflected in the README and in `docs/index.html` (GitHub Pages)
 - Release flow: commit → push → `gh release create vX.Y.Z`
 

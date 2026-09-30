@@ -1,0 +1,13 @@
+{
+  "name": "dsh-codex-push-hooks",
+  "version": "2.4.0",
+  "description": "codex-push-hooks bridge for the DeepSeek Harness (dsh): tiered push notifications for approvals, turns, and questions, reusing the codex-push-hooks bash scripts and channels.",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT"
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks standalone install script (Reasonix branch)
-# Writes the configuration to ~/.reasonix/cc-notify-hooks/notify.json and
+# codex-push-hooks standalone install script (Reasonix branch)
+# Writes the configuration to ~/.reasonix/codex-push-hooks/notify.json and
 # registers the plugin with Reasonix in --link mode (reasonix plugin install).
 #
 # Can be called by the install.sh router or run on its own:
@@ -10,9 +10,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_DIR="${REPO_ROOT}/plugins/cc-notify-hooks"
+PLUGIN_DIR="${REPO_ROOT}/plugins/codex-push-hooks"
 REASONIX_HOME_DIR="${REASONIX_HOME:-${HOME}/.reasonix}"
-INSTALL_DIR="${REASONIX_HOME_DIR}/cc-notify-hooks"
+INSTALL_DIR="${REASONIX_HOME_DIR}/codex-push-hooks"
 CONFIG_FILE="${INSTALL_DIR}/notify.json"
 STATE_DIR="${HOME}/.claude/hooks/state"  # shared state directory for all agents
 
@@ -27,7 +27,7 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - Reasonix standalone install"
+echo "  codex-push-hooks - Reasonix standalone install"
 echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
@@ -95,10 +95,14 @@ _read_json() {
     echo "$default"
 }
 
-# Reuse an existing configuration (Claude / Codex) so credentials are not entered twice
+# Reuse an existing configuration (own legacy path first, then Claude / Codex)
+# so credentials are not entered twice. Legacy files are copied, never moved
+# or deleted, and an existing canonical file is never overwritten.
 if [ ! -f "$CONFIG_FILE" ]; then
     for existing in \
+        "${REASONIX_HOME_DIR}/cc-notify-hooks/notify.json" \
         "${HOME}/.claude/hooks/notify.json" \
+        "${CODEX_HOME:-${HOME}/.codex}/codex-push-hooks/notify.json" \
         "${CODEX_HOME:-${HOME}/.codex}/cc-notify-hooks/notify.json"; do
         if [ -f "$existing" ]; then
             echo -e "  ${CYAN}Existing configuration detected; it can be reused${NC}"
@@ -304,7 +308,7 @@ echo "    Stop               → push when a conversation turn ends (task comple
 echo "    UserPromptSubmit   → cancel queued pushes once the user responds"
 echo "    PreToolUse(ask)    → push when a question is asked (reply needed 🔔); other tools clear pending"
 echo ""
-echo "  Manage: reasonix plugin show cc-notify-hooks"
-echo "  Uninstall: reasonix plugin remove cc-notify-hooks --yes"
+echo "  Manage: reasonix plugin show codex-push-hooks"
+echo "  Uninstall: reasonix plugin remove codex-push-hooks --yes"
 echo "  Change the configuration: edit $CONFIG_FILE"
 echo "========================================="

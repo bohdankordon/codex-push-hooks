@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cc-notify-hooks standalone install script (Claude Code branch)
+# codex-push-hooks standalone install script (Claude Code branch)
 # Deploys scripts/ to ~/.claude/hooks/ and merges the hook configuration into ~/.claude/settings.json
 #
 # Can be called by the install.sh router or run on its own:
@@ -25,7 +25,7 @@ IS_MACOS=false
 [[ "$(uname -s)" == "Darwin" ]] && IS_MACOS=true
 
 echo "========================================="
-echo "  cc-notify-hooks - Claude Code standalone install"
+echo "  codex-push-hooks - Claude Code standalone install"
 echo "  Platform: $(uname -s) $(uname -m)"
 echo "========================================="
 echo ""
@@ -339,5 +339,5 @@ echo "  2. Restart Claude Code so the hooks take effect"
 echo "  3. Debug: tail -f /tmp/claude-hooks-debug.log"
 echo ""
 echo "  Change the configuration: edit $CONFIG_FILE"
-echo "  Plugin mode: claude --plugin-dir $REPO_ROOT/plugins/cc-notify-hooks"
+echo "  Plugin mode: claude --plugin-dir $REPO_ROOT/plugins/codex-push-hooks"
 echo "========================================="

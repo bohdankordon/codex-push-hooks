@@ -1,5 +1,5 @@
 {
-  "name": "cc-notify-hooks",
+  "name": "codex-push-hooks",
   "owner": {
     "name": "MarioZZJ",
     "email": "i@mariozzj.cn"
@@ -9,15 +9,15 @@
   },
   "plugins": [
     {
-      "name": "cc-notify-hooks",
-      "source": "./plugins/cc-notify-hooks",
+      "name": "codex-push-hooks",
+      "source": "./plugins/codex-push-hooks",
       "description": "Tiered push notifications for Claude Code — macOS, Bark, Telegram, Feishu, DingTalk, Slack, Discord, Pushover, ntfy, Gotify",
       "version": "2.4.0",
       "author": {
         "name": "MarioZZJ"
       },
-      "homepage": "https://github.com/MarioZZJ/cc-notify-hooks",
-      "repository": "https://github.com/MarioZZJ/cc-notify-hooks",
+      "homepage": "https://github.com/bohdankordon/codex-push-hooks",
+      "repository": "https://github.com/bohdankordon/codex-push-hooks",
       "license": "MIT",
       "keywords": ["notification", "bark", "telegram", "wechat", "feishu", "dingtalk", "slack", "discord", "pushover", "ntfy", "gotify"],
       "category": "productivity",

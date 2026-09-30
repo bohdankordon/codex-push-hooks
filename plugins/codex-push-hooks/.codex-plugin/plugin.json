@@ -1,23 +1,23 @@
 {
-  "name": "cc-notify-hooks",
+  "name": "codex-push-hooks",
   "version": "2.4.0",
   "description": "Tiered push notifications for Codex CLI — macOS, Bark, Telegram, Feishu, DingTalk, Slack, Discord, Pushover, ntfy, Gotify",
   "author": {
     "name": "MarioZZJ",
     "url": "https://github.com/MarioZZJ"
   },
-  "homepage": "https://github.com/MarioZZJ/cc-notify-hooks",
-  "repository": "https://github.com/MarioZZJ/cc-notify-hooks",
+  "homepage": "https://github.com/bohdankordon/codex-push-hooks",
+  "repository": "https://github.com/bohdankordon/codex-push-hooks",
   "license": "MIT",
   "keywords": ["notification", "bark", "telegram", "wechat", "feishu", "dingtalk", "slack", "discord", "pushover", "ntfy", "gotify"],
   "hooks": "./hooks/codex-hooks.json",
   "interface": {
-    "displayName": "cc-notify-hooks",
+    "displayName": "Codex Push Hooks",
     "shortDescription": "Tiered push notifications with 11 channels",
     "longDescription": "Tiered push notifications for Codex CLI. Short-delay channels (macOS/Bark/Telegram/Pushover/ntfy/Gotify) reach you within seconds, and fallback channels (WeCom/Feishu/DingTalk/Slack/Discord) follow up after a few minutes. Queued pushes are cancelled automatically once you respond, so you are never interrupted twice.",
     "developerName": "MarioZZJ",
     "category": "Productivity",
     "capabilities": ["Read"],
-    "websiteURL": "https://github.com/MarioZZJ/cc-notify-hooks"
+    "websiteURL": "https://github.com/bohdankordon/codex-push-hooks"
   }
 }
