@@ -254,13 +254,8 @@ SUMMARY_SHORT=$(truncate_text "$(trim_text "$(first_line "$SUMMARY_SOURCE")")" 1
 SESSION_SHORT=$(short_session_id "$SESSION_SCOPE")
 
 TITLE="${AGENT_NAME} · ${STATUS_LABEL}"
-QUESTION_LABEL="${QUESTION_COUNT} questions"
-if [ "$QUESTION_COUNT" = "1" ]; then
-    QUESTION_LABEL="1 question"
-fi
-
 if [ "$EVENT_KIND" = "user_input" ]; then
-    BODY="[$PROJECT] $SUMMARY_SHORT · ${QUESTION_LABEL} · Session ${SESSION_SHORT:-unknown}"
+    BODY="[$PROJECT] $SUMMARY_SHORT · Questions: ${QUESTION_COUNT} · Session ${SESSION_SHORT:-unknown}"
 else
     BODY="[$PROJECT] $SUMMARY_SHORT"
     [ -n "$TOOL_NAME" ] && BODY="${BODY} · ${TOOL_NAME}"

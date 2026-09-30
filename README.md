@@ -417,7 +417,7 @@ Short-delay bodies keep only what you need to interrupt your work:
 Codex waiting-for-input events use a dedicated short body with the question count and a short session id:
 
 ```text
-[project] first question summary · 2 questions · Session 019eabcd
+[project] first question summary · Questions: 2 · Session 019eabcd
 ```
 
 Fallback bodies show `summary_short` on the first line, followed by locating fields:

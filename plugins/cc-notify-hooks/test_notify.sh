@@ -300,7 +300,7 @@ test_user_input_flow() {
            [ "$(printf '%s' "$out" | jq -r '.event_kind')" != "user_input" ] ||
            [ "$(printf '%s' "$out" | jq -r '.question_count')" != "2" ] ||
            [ "$(printf '%s' "$out" | jq -r '.option_labels | join(",")')" != "Full fix,Minimal patch" ] ||
-           [[ "$(printf '%s' "$out" | jq -r '.body')" != *"2 questions · Session session-"* ]]; then
+           [[ "$(printf '%s' "$out" | jq -r '.body')" != *"Questions: 2 · Session session-"* ]]; then
             echo -e "${RED}[request_user_input]${NC} structured notification fields are wrong: $out"
             return 1
         fi
