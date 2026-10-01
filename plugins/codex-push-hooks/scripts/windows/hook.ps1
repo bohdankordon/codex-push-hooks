@@ -64,7 +64,13 @@ function Invoke-NotifyFlow {
         $worker = Join-Path $PSScriptRoot 'worker.ps1'
         $argLine = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $worker + '" -JobPath "' + $jobPath + '"'
         Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden
-    } catch { }
+    } catch {
+        # The worker never started, so nothing will ever consume this delivery:
+        # remove exactly the job file and pending marker this invocation created
+        # (other sessions' state is never touched). Stay fail-open for Codex.
+        try { if (Test-Path -LiteralPath $jobPath) { Remove-Item -LiteralPath $jobPath -Force -ErrorAction SilentlyContinue } } catch { }
+        try { if (Test-Path -LiteralPath $pendingFile) { Remove-Item -LiteralPath $pendingFile -Force -ErrorAction SilentlyContinue } } catch { }
+    }
 }
 
 function Invoke-ClearFlow {

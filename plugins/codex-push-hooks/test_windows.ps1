@@ -91,6 +91,63 @@ function Get-HookExit {
     $p.WaitForExit(15000) | Out-Null
     return $p.ExitCode
 }
+
+# Decodes the quote-free -EncodedCommand bootstrap carried by a
+# commandWindows entry, so tests can assert what the opaque payload does.
+function Get-DecodedHookCommand {
+    param([string]$Cmd)
+    $m = [regex]::Match($Cmd, '-EncodedCommand\s+([A-Za-z0-9+/=]+)\s*$')
+    Assert-True ($m.Success) 'command carries a trailing -EncodedCommand payload'
+    return [System.Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($m.Groups[1].Value))
+}
+
+# Emulates the current Codex Windows command-hook runner shape,
+# COMSPEC /C "<commandWindows>", with the argument string, environment and
+# redirected stdin owned by this test process (no extra PowerShell layer).
+function Invoke-CmdWrappedCommand {
+    param([string]$CmdLine, [string]$StdIn = '', [hashtable]$ExtraEnv = @{})
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $env:COMSPEC
+    $psi.Arguments = '/C "' + $CmdLine + '"'
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    foreach ($k in $ExtraEnv.Keys) { $psi.EnvironmentVariables[$k] = $ExtraEnv[$k] }
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Write($StdIn)
+    $p.StandardInput.Close()
+    $out = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit(30000) | Out-Null
+    return @{ Code = $p.ExitCode; Out = $out }
+}
+
+# Same command line handed to a PowerShell-family outer shell instead of cmd.exe.
+function Invoke-PsWrappedCommand {
+    param([string]$CmdLine, [string]$StdIn = '', [hashtable]$ExtraEnv = @{})
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'powershell.exe'
+    $psi.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ' + $CmdLine
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    foreach ($k in $ExtraEnv.Keys) { $psi.EnvironmentVariables[$k] = $ExtraEnv[$k] }
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Write($StdIn)
+    $p.StandardInput.Close()
+    $out = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit(30000) | Out-Null
+    return @{ Code = $p.ExitCode; Out = $out }
+}
+
+function Get-FirstBytes {
+    param([string]$Path, [int]$Count = 3)
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return $bytes[0..($Count - 1)]
+}
 Invoke-Case '01-json-stdin-parsing' {
     $e = ConvertFrom-CphHookJson -RawJson '{"hook_event_name":"PermissionRequest","session_id":"abc","turn_id":"t1","tool_use_id":"call1","transcript_path":"x","cwd":"C:/w/proj","permission_mode":"default","agent_id":"","notification_type":"","model":"gpt-5","tool_name":"Bash","last_assistant_message":"hi","stop_hook_active":false,"tool_input":{"questions":[{"header":"H","question":"Q?","options":[{"label":"Yes"},{"label":"No"}]}]}}'
     Assert-True ($e['HookEvent'] -eq 'PermissionRequest') 'hook event'
@@ -342,22 +399,37 @@ Invoke-Case '23-worker-cleanup' {
     Assert-True (-not (Test-Path -LiteralPath $pend)) 'pending removed'
     Assert-True (-not (Test-Path -LiteralPath $jp)) 'job removed'
 }
-Invoke-Case '24-paths-with-spaces' {
-    $base = Join-Path ([System.IO.Path]::GetTempPath()) ('cphw spaced dir ' + [System.Guid]::NewGuid().ToString('N'))
-    $sd = Join-Path $base 'state dir'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
-    $env:CC_NOTIFY_STATE_DIR = $sd
-    $cfg = Write-TestConfig -Dir $base -Body '{"channels":{},"rate_limit":10}'
-    $env:CC_NOTIFY_CONFIG = $cfg
-    $code = Get-HookExit -Json '{"hook_event_name":"UserPromptSubmit","message":"hi","session_id":"spaced"}' -Action 'clear'
-    Assert-True ($code -eq 0) 'spaced state dir works'
-    $hooks = Get-Content (Join-Path $TestRoot 'hooks/codex-hooks.json') -Raw | ConvertFrom-Json
-    foreach ($ev in @('PermissionRequest','Stop','UserPromptSubmit','PreToolUse','PostToolUse')) {
-        $cmd = $hooks.hooks.$ev[0].hooks[0].commandWindows
-        $m = [regex]::Match($cmd, '-File "([^"]+)"')
-        Assert-True ($m.Success) ($ev + ' has quoted -File path')
-        $withSpaces = $m.Groups[1].Value.Replace('${PLUGIN_ROOT}', 'C:/fake dir/with spaces')
-        Assert-True ($withSpaces -match 'with spaces') ($ev + ' survives spaced root')
+Invoke-Case '24-runner-cmd-wrapped-command' {
+    # Regression for the current Codex Windows runner, which passes the handler to
+    # COMSPEC /C "<commandWindows>". An embedded quoted segment is unsafe under
+    # that wrapping, so every plugin command must be a quote-free
+    # -EncodedCommand bootstrap that still reaches hook.ps1 when PLUGIN_ROOT
+    # contains spaces.
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) ('cphw plugin root ' + [System.Guid]::NewGuid().ToString('N'))
+    $pluginCopy = Join-Path $root 'codex-push-hooks'
+    New-Item -ItemType Directory -Force -Path $pluginCopy | Out-Null
+    Copy-Item -Path (Join-Path $TestRoot '*') -Destination $pluginCopy -Recurse -Force
+    $manifest = Get-Content (Join-Path $TestRoot 'hooks/codex-hooks.json') -Raw | ConvertFrom-Json
+    $expect = @{ PermissionRequest = "'notification'"; Stop = "'stop'"; UserPromptSubmit = "'clear'"; PreToolUse = "'pre-tool-use'"; PostToolUse = "'clear' 'user_input'" }
+    foreach ($ev in $expect.Keys) {
+        $cmd = [string]$manifest.hooks.$ev[0].hooks[0].commandWindows
+        Assert-True (-not $cmd.Contains('"')) ($ev + ' commandWindows contains no double quote')
+        $decoded = Get-DecodedHookCommand -Cmd $cmd
+        Assert-True ($decoded -match 'hook\.ps1') ($ev + ' bootstrap resolves hook.ps1')
+        Assert-True ($decoded -match 'PLUGIN_ROOT') ($ev + ' bootstrap reads PLUGIN_ROOT')
+        Assert-True ($decoded -match [regex]::Escape($expect[$ev])) ($ev + ' bootstrap carries the action args')
+        Assert-True ($decoded -notmatch 'bash|jq|wsl') ($ev + ' bootstrap has no posix dependency')
     }
+    $fixture = '{"hook_event_name":"PermissionRequest","prompt":"spaced plugin root","cwd":"C:/w/proj","session_id":"s24"}'
+    $cmdLine = [string]$manifest.hooks.PermissionRequest[0].hooks[0].commandWindows
+    $extra = @{ PLUGIN_ROOT = $pluginCopy; CC_NOTIFY_RENDER_ONLY = '1' }
+    $r = Invoke-CmdWrappedCommand -CmdLine $cmdLine -StdIn $fixture -ExtraEnv $extra
+    Assert-True ($r['Code'] -eq 0) 'cmd-wrapped runner exit 0'
+    Assert-True ($r['Out'] -match 'spaced plugin root') 'cmd-wrapped runner reached hook.ps1 and read stdin'
+    Assert-True ($r['Out'] -match '"schema_version"') 'cmd-wrapped runner produced a rendered event'
+    $r2 = Invoke-PsWrappedCommand -CmdLine $cmdLine -StdIn $fixture -ExtraEnv $extra
+    Assert-True ($r2['Code'] -eq 0) 'powershell-wrapped runner exit 0'
+    Assert-True ($r2['Out'] -match 'spaced plugin root') 'powershell-wrapped runner reached hook.ps1 and read stdin'
 }
 Invoke-Case '25-unicode-roundtrip' {
     $e = ConvertFrom-CphHookJson -RawJson '{"hook_event_name":"PermissionRequest","prompt":"Deploy caf\u00e9 \u6771\u4eac done?","cwd":"C:/w/p","session_id":"s25"}'
@@ -384,14 +456,17 @@ Invoke-Case '27-missing-config-safe' {
 }
 Invoke-Case '28-command-windows-present' {
     $hooks = Get-Content (Join-Path $TestRoot 'hooks/codex-hooks.json') -Raw | ConvertFrom-Json
-    $expect = @{ PermissionRequest = 'notification'; Stop = 'stop'; UserPromptSubmit = 'clear'; PreToolUse = 'pre-tool-use'; PostToolUse = 'clear user_input' }
+    $expect = @{ PermissionRequest = "'notification'"; Stop = "'stop'"; UserPromptSubmit = "'clear'"; PreToolUse = "'pre-tool-use'"; PostToolUse = "'clear' 'user_input'" }
     foreach ($ev in $expect.Keys) {
         $h = $hooks.hooks.$ev[0].hooks[0]
         Assert-True ($null -ne $h.commandWindows) ($ev + ' has commandWindows')
-        Assert-True ($h.commandWindows -match 'powershell\.exe') ($ev + ' uses powershell.exe')
-        Assert-True ($h.commandWindows -match 'hook\.ps1') ($ev + ' targets hook.ps1')
-        Assert-True ($h.commandWindows -match [regex]::Escape($expect[$ev])) ($ev + ' action args')
-        Assert-True ($h.commandWindows -notmatch 'bash|\bsh\b|jq|wsl') ($ev + ' has no posix deps')
+        Assert-True ($h.commandWindows -match '^powershell\.exe ') ($ev + ' uses powershell.exe')
+        Assert-True ($h.commandWindows -match '-EncodedCommand [A-Za-z0-9+/=]+$') ($ev + ' carries an encoded bootstrap')
+        Assert-True (-not $h.commandWindows.Contains('"')) ($ev + ' command line has no double quote')
+        $decoded = Get-DecodedHookCommand -Cmd $h.commandWindows
+        Assert-True ($decoded -match 'hook\.ps1') ($ev + ' targets hook.ps1')
+        Assert-True ($decoded -match [regex]::Escape($expect[$ev])) ($ev + ' action args')
+        Assert-True ($decoded -notmatch 'bash|jq|wsl') ($ev + ' has no posix deps')
     }
 }
 Invoke-Case '29-posix-commands-unchanged' {
@@ -434,6 +509,26 @@ function Invoke-Installer {
     $p.WaitForExit(60000) | Out-Null
     return @{ Code = $p.ExitCode; Out = $out }
 }
+
+# Interactive install: the installer's channel quick-enable prompt reads stdin,
+# which is how the notify.json rewrite path is exercised deterministically.
+function Invoke-InstallerWithInput {
+    param([string]$CodexHome, [string]$InputText = '')
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'powershell.exe'
+    $psi.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $Installer + '"'
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.EnvironmentVariables['CODEX_HOME'] = $CodexHome
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Write($InputText)
+    $p.StandardInput.Close()
+    $out = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit(60000) | Out-Null
+    return @{ Code = $p.ExitCode; Out = $out }
+}
 Invoke-Case 'A-install-fresh' {
     $d = New-CaseDir; $ch = Join-Path $d 'codex'
     $r = Invoke-Installer -CodexHome $ch
@@ -458,6 +553,8 @@ Invoke-Case 'C-install-invalid-hooks' {
     $r = Invoke-Installer -CodexHome $ch
     Assert-True ($r['Code'] -ne 0) 'installer fails safely'
     Assert-True ((Get-Content (Join-Path $ch 'hooks.json') -Raw) -eq 'NOT JSON{{{') 'original unchanged'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $ch 'codex-push-hooks'))) 'preflight failed before creating the install dir'
+    Assert-True (@(Get-ChildItem -LiteralPath $ch -Filter 'hooks.json.backup.*' -ErrorAction SilentlyContinue).Count -eq 0) 'preflight wrote no backup'
 }
 Invoke-Case 'D-install-keep-canonical' {
     $d = New-CaseDir; $ch = Join-Path $d 'codex'
@@ -485,8 +582,11 @@ Invoke-Case 'F-install-spaced-codex-home' {
     Assert-True ($r['Code'] -eq 0) 'installer exit 0 with spaces'
     Assert-True (Test-Path -LiteralPath (Join-Path $ch 'hooks.json')) 'hooks in spaced home'
     $hj = Get-Content (Join-Path $ch 'hooks.json') -Raw | ConvertFrom-Json
-    $cmd = $hj.hooks.PermissionRequest[0].hooks[0].commandWindows
-    Assert-True ($cmd -match 'my codex home') 'spaced path embedded'
+    $cmd = [string]$hj.hooks.PermissionRequest[0].hooks[0].commandWindows
+    Assert-True (-not $cmd.Contains('"')) 'generated command line has no double quote'
+    $decoded = Get-DecodedHookCommand -Cmd $cmd
+    Assert-True ($decoded -match 'my codex home') 'spaced path is embedded in the payload'
+    Assert-True ($decoded -match 'hook\.ps1') 'payload targets the installed hook'
 }
 Invoke-Case 'G-install-spaced-repo-source' {
     $text = [System.IO.File]::ReadAllText($Installer, [System.Text.Encoding]::UTF8)
@@ -503,6 +603,115 @@ Invoke-Case 'H-install-plain-file-links' {
     $r = Invoke-Installer -CodexHome $ch
     Assert-True ($r['Code'] -eq 0) 'installer works without symlink privilege'
     Assert-True (Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $ch 'codex-push-hooks') 'scripts') 'windows/hook.ps1')) 'windows entry point installed'
+}
+Invoke-Case '31-installer-runner-spaced-codex-home' {
+    # The installer-generated commandWindows must also survive the current Codex
+    # runner with a CODEX_HOME that contains spaces, and must not depend on
+    # PLUGIN_ROOT (standalone installs carry their own absolute path).
+    $d = New-CaseDir; $ch = Join-Path $d 'codex home with spaces'
+    $r = Invoke-Installer -CodexHome $ch
+    Assert-True ($r['Code'] -eq 0) 'installer exit 0'
+    $hj = Get-Content (Join-Path $ch 'hooks.json') -Raw | ConvertFrom-Json
+    $cmdLine = [string]$hj.hooks.PermissionRequest[0].hooks[0].commandWindows
+    Assert-True (-not $cmdLine.Contains('"')) 'installed command line has no double quote'
+    $fixture = '{"hook_event_name":"PermissionRequest","prompt":"standalone spaced home","cwd":"C:/w/proj","session_id":"s31"}'
+    $res = Invoke-CmdWrappedCommand -CmdLine $cmdLine -StdIn $fixture -ExtraEnv @{ CC_NOTIFY_RENDER_ONLY = '1'; PLUGIN_ROOT = '' }
+    Assert-True ($res['Code'] -eq 0) 'standalone runner exit 0'
+    Assert-True ($res['Out'] -match 'standalone spaced home') 'standalone runner reached the installed hook.ps1'
+}
+Invoke-Case '32-installer-hooks-json-without-bom' {
+    # Windows PowerShell 5.1 writes a UTF-8 BOM with Out-File -Encoding utf8;
+    # Codex parses hooks.json as text, so the BOM must never be emitted.
+    $d = New-CaseDir; $ch = Join-Path $d 'codex'
+    $r = Invoke-Installer -CodexHome $ch
+    Assert-True ($r['Code'] -eq 0) 'installer exit 0'
+    $hooksFile = Join-Path $ch 'hooks.json'
+    $bytes = Get-FirstBytes -Path $hooksFile
+    Assert-True ($bytes[0] -eq 0x7B) 'fresh hooks.json starts with a JSON brace'
+    Assert-True (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) 'fresh hooks.json has no UTF-8 BOM'
+    Assert-True ($null -ne ((Get-Content $hooksFile -Raw) | ConvertFrom-Json)) 'fresh hooks.json parses'
+    $r2 = Invoke-Installer -CodexHome $ch
+    Assert-True ($r2['Code'] -eq 0) 'second install exit 0 (merge path)'
+    $bytes2 = Get-FirstBytes -Path $hooksFile
+    Assert-True ($bytes2[0] -eq 0x7B) 'merged hooks.json starts with a JSON brace'
+    Assert-True (-not ($bytes2[0] -eq 0xEF -and $bytes2[1] -eq 0xBB -and $bytes2[2] -eq 0xBF)) 'merged hooks.json has no UTF-8 BOM'
+    Assert-True ($null -ne ((Get-Content $hooksFile -Raw) | ConvertFrom-Json)) 'merged hooks.json parses'
+}
+Invoke-Case '33-installer-quick-enable-without-bom' {
+    $d = New-CaseDir; $ch = Join-Path $d 'codex'
+    $r = Invoke-InstallerWithInput -CodexHome $ch -InputText ('1' + [char]10)
+    Assert-True ($r['Code'] -eq 0) 'interactive installer exit 0'
+    $cfg = Join-Path (Join-Path $ch 'codex-push-hooks') 'notify.json'
+    Assert-True (Test-Path -LiteralPath $cfg) 'notify.json written'
+    $bytes = Get-FirstBytes -Path $cfg
+    Assert-True (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) 'rewritten notify.json has no UTF-8 BOM'
+    $obj = [System.IO.File]::ReadAllText($cfg, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+    Assert-True ($obj.channels.telegram.enabled -eq $true) 'quick-enable rewrote notify.json (telegram enabled)'
+}
+Invoke-Case '34-capture-records-never-contain-credentials' {
+    # CC_NOTIFY_CAPTURE_DIR is a deterministic test facility: it must record the
+    # request shape without ever persisting tokens or webhook URLs.
+    $d = New-CaseDir
+    $cap = Join-Path $d 'capture'; New-Item -ItemType Directory -Force -Path $cap | Out-Null
+    $body = '{"channels":{"telegram":{"enabled":true,"bot_token":"SECRET_TELEGRAM_TOKEN_DO_NOT_WRITE","chat_id":"SECRET_CHAT_DO_NOT_WRITE"},"wechat":{"enabled":true,"webhook":"https://qyapi.invalid/cgi-bin/webhook/send?key=SECRET_WEBHOOK_DO_NOT_WRITE"},"pushover":{"enabled":true,"app_token":"SECRET_PUSHOVER_TOKEN_DO_NOT_WRITE","user_key":"SECRET_PUSHOVER_USER_DO_NOT_WRITE"},"gotify":{"enabled":true,"server":"https://gotify.invalid","app_token":"SECRET_GOTIFY_TOKEN_DO_NOT_WRITE"}},"rate_limit":10}'
+    $cfg = Write-TestConfig -Dir $d -Body $body
+    $e = ConvertFrom-CphHookJson -RawJson '{"hook_event_name":"Stop","last_assistant_message":"done","cwd":"C:/w/p","session_id":"s34"}'
+    $c = Get-CphNotificationContent -Event $e -EventType 'stop' -EventKind 'stop'
+    $env:CC_NOTIFY_CAPTURE_DIR = $cap
+    foreach ($ch in @('telegram','wechat','pushover','gotify')) {
+        $cc = Get-CphChannelConfig -ConfigPath $cfg -Channel $ch
+        $req = New-CphChannelRequest -Channel $ch -Title $c['Title'] -Body $c['Body'] -ChannelConfig $cc -Content $c
+        Assert-True ($null -ne $req) ($ch + ' request is built in memory with credentials')
+        Assert-True ((Invoke-CphChannelSend -Channel $ch -Title $c['Title'] -Body $c['Body'] -ChannelConfig $cc -Content $c) -eq $true) ($ch + ' captured send')
+    }
+    $files = @(Get-ChildItem -LiteralPath $cap -Filter '*.json')
+    Assert-True ($files.Count -eq 4) 'four capture records'
+    $sentinels = @('SECRET_TELEGRAM_TOKEN_DO_NOT_WRITE','SECRET_CHAT_DO_NOT_WRITE','SECRET_WEBHOOK_DO_NOT_WRITE','SECRET_PUSHOVER_TOKEN_DO_NOT_WRITE','SECRET_PUSHOVER_USER_DO_NOT_WRITE','SECRET_GOTIFY_TOKEN_DO_NOT_WRITE')
+    foreach ($f in $files) {
+        $text = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
+        foreach ($s in $sentinels) { Assert-True (-not $text.Contains($s)) ('capture ' + $f.Name + ' must not contain ' + $s) }
+        Assert-True (-not $text.Contains('https://')) ('capture ' + $f.Name + ' must not contain a destination url')
+        Assert-True (-not $text.Contains('SECRET_')) ('capture ' + $f.Name + ' must not contain any sentinel secret')
+        $capObj = $text | ConvertFrom-Json
+        $names = @($capObj.PSObject.Properties | ForEach-Object { $_.Name })
+        Assert-True ($names.Count -eq 6) ('capture ' + $f.Name + ' has exactly the six safe fields')
+        foreach ($name in $names) {
+            Assert-True (@('channel','method','captured','body_kind','url_scheme','field_keys') -contains $name) ('capture ' + $f.Name + ' has an unexpected field: ' + $name)
+        }
+        Assert-True ($capObj.captured -eq $true) ('capture ' + $f.Name + ' records the captured marker')
+        Assert-True ($capObj.url_scheme -eq 'https') ('capture ' + $f.Name + ' records only the url scheme')
+    }
+    $tg = @($files | Where-Object { $_.Name -like 'telegram_*' })[0]
+    $tgObj = [System.IO.File]::ReadAllText($tg.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+    Assert-True (($tgObj.field_keys -contains 'chat_id') -and ($tgObj.field_keys -contains 'text')) 'telegram field keys recorded without values'
+}
+Invoke-Case '35-worker-launch-failure-cleanup' {
+    # A non-executable file named powershell.exe first on PATH makes the hook's
+    # Start-Process worker launch fail deterministically; the hook must stay
+    # fail-open and leave no orphaned job file or pending marker behind.
+    $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $cfg = Write-TestConfig -Dir $d -Body '{"channels":{"telegram":{"enabled":true,"delay":5,"bot_token":"T","chat_id":"C"}},"rate_limit":10}'
+    $shadow = Join-Path $d 'shadow'; New-Item -ItemType Directory -Force -Path $shadow | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $shadow 'powershell.exe'), 'not a real executable', [System.Text.Encoding]::ASCII)
+    $hook = Join-Path (Join-Path (Join-Path $TestRoot 'scripts') 'windows') 'hook.ps1'
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = (Get-Command powershell.exe).Source
+    $psi.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $hook + '" notification'
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.EnvironmentVariables['CC_NOTIFY_CONFIG'] = $cfg
+    $psi.EnvironmentVariables['CC_NOTIFY_STATE_DIR'] = $sd
+    $psi.EnvironmentVariables['PATH'] = ($shadow + ';' + $env:PATH)
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Write('{"hook_event_name":"PermissionRequest","prompt":"launch fails","cwd":"C:/w/p","session_id":"s35"}')
+    $p.StandardInput.Close()
+    $p.StandardOutput.ReadToEnd() | Out-Null
+    $p.WaitForExit(30000) | Out-Null
+    Assert-True ($p.ExitCode -eq 0) 'hook still exits 0 when the worker cannot start'
+    Assert-True (@(Get-ChildItem -LiteralPath $sd -Filter 'job_*.json' -ErrorAction SilentlyContinue).Count -eq 0) 'job file cleaned up after launch failure'
+    Assert-True (@(Get-ChildItem -LiteralPath $sd -Filter 'pending_*' -ErrorAction SilentlyContinue).Count -eq 0) 'pending marker cleaned up after launch failure'
 }
 Write-Output ''
 Write-Output ('PSVersion=' + [string]$PSVersionTable.PSVersion)

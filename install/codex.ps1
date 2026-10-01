@@ -18,6 +18,27 @@ function Write-Ok { param([string]$m) Write-Host ("  [OK] " + $m) }
 function Write-WarnMsg { param([string]$m) Write-Host ("  [WARN] " + $m) }
 function Write-ErrMsg { param([string]$m) Write-Host ("  [ERROR] " + $m) }
 
+# Windows PowerShell 5.1's "Out-File -Encoding utf8" always emits a UTF-8 BOM,
+# and Codex reads hooks.json as text without stripping one, so every JSON file
+# written here goes through an explicit BOM-less encoder.
+$script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Text)
+    [System.IO.File]::WriteAllText($Path, $Text, $script:Utf8NoBom)
+}
+
+# Quote-safe Windows hook launcher. The whole bootstrap travels as a UTF-16LE
+# base64 -EncodedCommand payload, so the emitted command line contains no double
+# quote character at all and cannot be misparsed by the Codex hook runner's
+# cmd.exe /C "<command line>" wrapping. It is equally valid when the runner uses
+# a PowerShell-family outer shell, because base64 has no shell metacharacters.
+function ConvertTo-EncodedHookCommand {
+    param([string]$ScriptText)
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($ScriptText))
+    return ('powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded)
+}
+
 function Get-HomeDir {
     if ($env:USERPROFILE -and (Test-Path -LiteralPath $env:USERPROFILE)) { return $env:USERPROFILE }
     if ($env:HOME -and (Test-Path -LiteralPath $env:HOME)) { return $env:HOME }
@@ -43,6 +64,21 @@ $configFile = Join-Path $installDir 'notify.json'
 $hooksFile = Join-Path $codexHome 'hooks.json'
 $codexConfig = Join-Path $codexHome 'config.toml'
 $legacyConfig = Join-Path (Join-Path $codexHome 'cc-notify-hooks') 'notify.json'
+
+# Preflight: an existing hooks.json that cannot be parsed must fail here, before
+# the installer creates or rewrites the configuration or the runtime.
+$existingHooks = $null
+if (Test-Path -LiteralPath $hooksFile -PathType Leaf) {
+    try {
+        $rawHooks = [System.IO.File]::ReadAllText($hooksFile, [System.Text.Encoding]::UTF8)
+        $existingHooks = $rawHooks | ConvertFrom-Json
+    } catch { $existingHooks = $null }
+    if ($null -eq $existingHooks) {
+        Write-ErrMsg ('hooks.json exists but cannot be parsed: ' + $hooksFile)
+        Write-ErrMsg 'Nothing was changed. Fix or remove the file, then run the installer again.'
+        exit 1
+    }
+}
 
 Write-Info '========================================='
 Write-Info '  codex-push-hooks - Codex CLI Windows install'
@@ -98,7 +134,7 @@ if (-not $NonInteractive) {
                 }
                 $idx++
             }
-            $cfg | ConvertTo-Json -Depth 10 | Out-File -LiteralPath $configFile -Encoding utf8
+            Write-Utf8NoBom -Path $configFile -Text ($cfg | ConvertTo-Json -Depth 10)
             Write-Ok 'channel selection saved (fill in credentials in notify.json)'
         } catch { Write-WarnMsg 'could not update channel selection; edit notify.json manually.' }
     }
@@ -116,35 +152,26 @@ function New-HookCommand {
     param([string]$PosixScript, [string]$PosixArgs, [string]$WinArgs)
     $posix = 'bash "' + (Join-Path $scriptsDir $PosixScript).Replace('\', '/') + '"'
     if ($PosixArgs -ne '') { $posix = $posix + ' ' + $PosixArgs }
-    $win = 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $hookBase + '"'
-    if ($WinArgs -ne '') { $win = $win + ' ' + $WinArgs }
+    # The absolute installed hook path is baked into the encoded bootstrap, and
+    # a path containing a single quote is doubled so the PowerShell literal
+    # survives any CODEX_HOME (spaces included) without an outer quote pair.
+    $escapedHook = $hookBase.Replace("'", "''")
+    $bootstrap = '$ErrorActionPreference=''SilentlyContinue'';$h=''' + $escapedHook + ''';if(Test-Path -LiteralPath $h){& $h ' + $WinArgs + '}'
+    $win = ConvertTo-EncodedHookCommand -ScriptText $bootstrap
     return @{ command = $posix; commandWindows = $win }
 }
-$cNotif = New-HookCommand -PosixScript 'notify.sh' -PosixArgs 'notification' -WinArgs 'notification'
-$cStop = New-HookCommand -PosixScript 'notify.sh' -PosixArgs 'stop' -WinArgs 'stop'
-$cClear = New-HookCommand -PosixScript 'clear_pending.sh' -PosixArgs '' -WinArgs 'clear'
-$cPre = New-HookCommand -PosixScript 'pre_tool_use.sh' -PosixArgs '' -WinArgs 'pre-tool-use'
-$cClearUi = New-HookCommand -PosixScript 'clear_pending.sh' -PosixArgs 'user_input' -WinArgs 'clear user_input'
+$cNotif = New-HookCommand -PosixScript 'notify.sh' -PosixArgs 'notification' -WinArgs "'notification'"
+$cStop = New-HookCommand -PosixScript 'notify.sh' -PosixArgs 'stop' -WinArgs "'stop'"
+$cClear = New-HookCommand -PosixScript 'clear_pending.sh' -PosixArgs '' -WinArgs "'clear'"
+$cPre = New-HookCommand -PosixScript 'pre_tool_use.sh' -PosixArgs '' -WinArgs "'pre-tool-use'"
+$cClearUi = New-HookCommand -PosixScript 'clear_pending.sh' -PosixArgs 'user_input' -WinArgs "'clear' 'user_input'"
 $desired = @{}
 $desired['PermissionRequest'] = @(@{ matcher = '*'; hooks = @(@{ type = 'command'; command = $cNotif['command']; commandWindows = $cNotif['commandWindows']; timeout = 5 }) })
 $desired['Stop'] = @(@{ matcher = '*'; hooks = @(@{ type = 'command'; command = $cStop['command']; commandWindows = $cStop['commandWindows']; timeout = 5 }) })
 $desired['UserPromptSubmit'] = @(@{ matcher = '*'; hooks = @(@{ type = 'command'; command = $cClear['command']; commandWindows = $cClear['commandWindows']; timeout = 3 }) })
 $desired['PreToolUse'] = @(@{ matcher = '*'; hooks = @(@{ type = 'command'; command = $cPre['command']; commandWindows = $cPre['commandWindows']; timeout = 3 }) })
 $desired['PostToolUse'] = @(@{ matcher = '^request_user_input$'; hooks = @(@{ type = 'command'; command = $cClearUi['command']; commandWindows = $cClearUi['commandWindows']; timeout = 3 }) })
-$existing = $null
-if (Test-Path -LiteralPath $hooksFile -PathType Leaf) {
-    try {
-        $rawHooks = [System.IO.File]::ReadAllText($hooksFile, [System.Text.Encoding]::UTF8)
-        $existing = $rawHooks | ConvertFrom-Json
-    } catch {
-        Write-ErrMsg ('hooks.json exists but cannot be parsed; leaving it unchanged: ' + $hooksFile)
-        exit 1
-    }
-    if ($null -eq $existing) {
-        Write-ErrMsg ('hooks.json exists but cannot be parsed; leaving it unchanged: ' + $hooksFile)
-        exit 1
-    }
-}
+$existing = $existingHooks
 if ($null -eq $existing) { $existing = New-Object PSObject }
 if (-not $existing.PSObject.Properties['hooks']) {
     $existing | Add-Member -NotePropertyName 'hooks' -NotePropertyValue (New-Object PSObject)
@@ -162,7 +189,7 @@ if (Test-Path -LiteralPath $hooksFile -PathType Leaf) {
 }
 $tmpHooks = ($hooksFile + '.tmp')
 try {
-    $existing | ConvertTo-Json -Depth 20 | Out-File -LiteralPath $tmpHooks -Encoding utf8
+    Write-Utf8NoBom -Path $tmpHooks -Text ($existing | ConvertTo-Json -Depth 20)
     Move-Item -LiteralPath $tmpHooks -Destination $hooksFile -Force
 } catch {
     try { if (Test-Path -LiteralPath $tmpHooks) { Remove-Item -LiteralPath $tmpHooks -Force -ErrorAction SilentlyContinue } } catch { }
@@ -191,15 +218,16 @@ try {
 } catch { Write-Info '  pwsh check skipped.' }
 Write-Info ''
 Write-Info '========================================='
-if ($hooksEnabled) { Write-Ok ('codex_hooks is already enabled in ' + $codexConfig) }
+if ($hooksEnabled) { Write-Ok ('hooks are already enabled in ' + $codexConfig) }
 else {
     Write-WarnMsg 'Important: Codex hooks must be enabled manually.'
     Write-Info ('  Add the following to ' + $codexConfig + ':')
     Write-Info ''
     Write-Info '    [features]'
-    Write-Info '    codex_hooks = true'
+    Write-Info '    hooks = true'
     Write-Info ''
     Write-Info '  Save the file; it takes effect the next time Codex starts.'
+    Write-Info '  (codex_hooks = true is a deprecated alias and is still detected.)'
 }
 Write-Info ''
 Write-Info '  Next steps:'

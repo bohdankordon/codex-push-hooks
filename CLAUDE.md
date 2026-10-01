@@ -111,6 +111,7 @@ the installer behavior.
 **Codex CLI**:
 - Manifest: `.codex-plugin/plugin.json`; hook configuration: `hooks/codex-hooks.json`
 - Codex hook commands run from the session `cwd`, so `./scripts/...` does not work; in plugin mode the scripts must be located from `~/.codex/plugins/cache/*/codex-push-hooks/*/`
+- `commandWindows` entries must stay quote-free: the Codex Windows runner passes handlers through `cmd.exe /c "<command line>"`, so an embedded quoted `-File "..."` segment is unsafe. Each entry is one `powershell.exe ... -EncodedCommand <UTF-16LE base64>` bootstrap that resolves the plugin root from `$env:PLUGIN_ROOT` and invokes `scripts\windows\hook.ps1` without reading stdin
 - Marketplace: `.agents/plugins/marketplace.json`; the `policy` block requires `installation`/`authentication`/`category`
 - Enabling hooks requires `[features]` with `codex_hooks = true` in `~/.codex/config.toml`
 - Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)

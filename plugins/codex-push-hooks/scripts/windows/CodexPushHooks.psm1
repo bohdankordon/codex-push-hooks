@@ -860,12 +860,36 @@ function Invoke-CphChannelSend {
         $capture = $env:CC_NOTIFY_CAPTURE_DIR
         if ($capture -and (Test-Path -LiteralPath $capture)) {
             try {
+                # Capture mode exists for deterministic tests, so it records the
+                # request SHAPE only. Destination URLs are deliberately omitted
+                # (Telegram and Gotify embed their token in the URL, and every
+                # webhook URL is itself a credential), and payload/form values are
+                # replaced by their sorted key names. No credential is ever written.
+                $kind = 'text'
+                $keys = @()
+                if ($req.ContainsKey('BodyObject')) {
+                    $kind = 'json'
+                    $keys = @($req['BodyObject'].Keys | Sort-Object)
+                } elseif ($req.ContainsKey('Form')) {
+                    $kind = 'form'
+                    $keys = @($req['Form'].Keys | Sort-Object)
+                }
+                $scheme = ''
+                try {
+                    $m = [System.Text.RegularExpressions.Regex]::Match([string]$req['Url'], '^([A-Za-z][A-Za-z0-9+.-]*)://')
+                    if ($m.Success) { $scheme = $m.Groups[1].Value }
+                } catch { }
+                $cap = @{
+                    channel = [string]$Channel
+                    method = [string]$req['Method']
+                    captured = $true
+                    body_kind = $kind
+                    url_scheme = $scheme
+                    field_keys = $keys
+                }
                 $fn = ($Channel + '_' + [System.Guid]::NewGuid().ToString('N') + '.json')
-                $cap = @{ channel = $Channel; url = $req['Url']; method = $req['Method']; headers = $req['Headers'] }
-                if ($req.ContainsKey('BodyObject')) { $cap['payload'] = $req['BodyObject'] }
-                if ($req.ContainsKey('Form')) { $cap['form'] = $req['Form'] }
-                if ($req.ContainsKey('TextBody')) { $cap['text'] = $req['TextBody'] }
-                $cap | ConvertTo-Json -Depth 20 | Out-File -LiteralPath (Join-Path $capture $fn) -Encoding utf8
+                $json = ($cap | ConvertTo-Json -Depth 6)
+                [System.IO.File]::WriteAllText((Join-Path $capture $fn), $json, (New-Object System.Text.UTF8Encoding($false)))
                 return $true
             } catch { return $false }
         }
