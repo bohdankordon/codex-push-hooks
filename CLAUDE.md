@@ -16,6 +16,7 @@ plugins/codex-push-hooks/    # the real plugin root (the scripts/hooks/config en
 ├── scripts/clear_pending.sh# clear pending notifications (triggered on user interaction)
 ├── scripts/pre_tool_use.sh # question-tool dispatcher (request_user_input / ask / AskUserQuestion)
 ├── scripts/channels/*.sh   # 11 channel implementations
+├── scripts/windows/        # native Windows runtime: hook.ps1 (entry), worker.ps1 (detached delivery), CodexPushHooks.psm1 (shared logic; no Bash/jq/curl/WSL)
 ├── hooks/hooks.json        # Claude Code hook event definitions
 ├── hooks/codex-hooks.json  # Codex CLI hook event definitions
 ├── reasonix-plugin.json    # native Reasonix plugin manifest (v2, payloadFormat=claude)
@@ -26,6 +27,7 @@ plugins/codex-push-hooks/    # the real plugin root (the scripts/hooks/config en
 └── skills/config/SKILL.md  # interactive configuration skill (Claude Code only)
 install.sh                  # standalone installer entry point (router)
 install/{claude,codex,reasonix,dsh}.sh
+install/codex.ps1            # native Windows Codex installer (PowerShell, custom CODEX_HOME, hooks.json merge)
 test_notify.sh              # channel connectivity + template/agent detection tests
 ```
 
@@ -109,6 +111,7 @@ the installer behavior.
 **Codex CLI**:
 - Manifest: `.codex-plugin/plugin.json`; hook configuration: `hooks/codex-hooks.json`
 - Codex hook commands run from the session `cwd`, so `./scripts/...` does not work; in plugin mode the scripts must be located from `~/.codex/plugins/cache/*/codex-push-hooks/*/`
+- `commandWindows` entries must stay quote-free: the Codex Windows runner passes handlers through `cmd.exe /c "<command line>"`, so an embedded quoted `-File "..."` segment is unsafe. Each entry is one `powershell.exe ... -EncodedCommand <UTF-16LE base64>` bootstrap that resolves the plugin root from `$env:PLUGIN_ROOT` and invokes `scripts\windows\hook.ps1` without reading stdin
 - Marketplace: `.agents/plugins/marketplace.json`; the `policy` block requires `installation`/`authentication`/`category`
 - Enabling hooks requires `[features]` with `codex_hooks = true` in `~/.codex/config.toml`
 - Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)
