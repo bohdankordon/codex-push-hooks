@@ -140,6 +140,31 @@ The installer walks you through channel selection and credential entry, then gen
 
 **After a Claude install, run `/reload-plugins` to refresh; after a Codex install, restart the Codex process; after a Reasonix install, restart the session; a dsh install takes effect immediately.**
 
+### Native Windows Codex runtime (no Bash/jq/WSL)
+
+On Windows, the Codex lifecycle hooks run natively in Windows PowerShell — no Bash, no jq, no curl, no WSL, no symlinks, and no admin rights required. The PowerShell runtime (`plugins/codex-push-hooks/scripts/windows/`) consumes the same Codex JSON hook input from stdin, keeps the same notification titles/bodies, delays, filters, and config-file compatibility as the POSIX Bash runtime, and delivers through a detached worker so long fallback delays never keep the hook process alive.
+
+```powershell
+# From a repository checkout (reads the real plugin dir plugins/codex-push-hooks/)
+powershell -ExecutionPolicy Bypass -File install/codex.ps1
+# Non-interactive (keeps an existing config, reuses a legacy one, safe defaults otherwise)
+powershell -ExecutionPolicy Bypass -File install/codex.ps1 -NonInteractive
+```
+
+The installer supports a custom `CODEX_HOME`, copies the runtime to `<CODEX_HOME>\codex-push-hooks\`, writes the config to `<CODEX_HOME>\codex-push-hooks\notify.json` (reusing `<CODEX_HOME>\cc-notify-hooks\notify.json` when offered, never deleting it), and tells you if `codex_hooks` still needs enabling in `<CODEX_HOME>\config.toml`.
+
+Hooks are merged into `<CODEX_HOME>\hooks.json` with the same semantics as `install/codex.sh`: the file is backed up first, every other event is preserved untouched, and the five events this plugin owns (`PermissionRequest`, `Stop`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`) are replaced by this plugin's entries — so hooks another tool registered under those same five event names are overwritten. Unparsable `hooks.json` fails closed: the installer reports the problem, writes nothing, and leaves the file exactly as it was.
+
+Supported natively on Windows: Bark, Telegram, Pushover, ntfy, Gotify, WeCom, Feishu, DingTalk, Slack, Discord. (`macos` system notifications are naturally unavailable on Windows.) Telegram — the primary target — posts `title + newline + body` as `chat_id`/`text` to Bot API `sendMessage`, exactly like the POSIX implementation. In plugin mode the same five Codex hooks resolve the runtime from the installed plugin root through `commandWindows` entries in `hooks/codex-hooks.json`; POSIX `command` entries are unchanged.
+
+Run the native suite (capture mode — no real network requests):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File plugins/codex-push-hooks/test_windows.ps1
+```
+
+Known host-level Windows limitations (upstream, not fixed here): some Codex builds fail to spawn command hooks when the configured shell resolves to a Store/MSIX `pwsh` alias — the installer prints a warning when it detects this. A detached worker avoids unnecessary console UI for its own process, but host-level console flashing from the app server remains an upstream issue. Real end-to-end validation inside ChatGPT Desktop is deferred to Stage 3B; this stage only establishes the native runtime with local hook-script smoke coverage.
+
 ### Option 5: Reasonix plugin package (recommended for Reasonix users)
 
 Reasonix natively supports this repository's `reasonix-plugin.json` (`reasonix.io/plugin/v2`), installable from the GitHub repository or from a local directory:
@@ -375,6 +400,8 @@ The complete template is in [`config/notify.example.json`](config/notify.example
 
 > Codex has no dedicated waiting-for-input event. The plugin detects the waiting state precisely through `PreToolUse(request_user_input)` and reuses the `notification` channel configuration.
 
+> On Windows the same five hooks run through `commandWindows` PowerShell entry points (`scripts/windows/hook.ps1`) with identical behavior; see [Native Windows Codex runtime](#native-windows-codex-runtime-no-bashjqwsl).
+
 ### Reasonix
 
 Declared in `reasonix-plugin.json` (`payloadFormat: "claude"`, so the scripts receive Claude-shaped stdin):
@@ -486,9 +513,14 @@ codex-push-hooks/
 │   │   ├── notify.sh
 │   │   ├── pre_tool_use.sh
 │   │   ├── clear_pending.sh
-│   │   └── channels/
+│   │   ├── channels/
+│   │   └── windows/           # native Windows runtime (no Bash/jq/WSL)
+│   │       ├── CodexPushHooks.psm1  # shared config/events/queue/channel logic
+│   │       ├── hook.ps1             # thin hook entry point (stdin JSON in, quick exit)
+│   │       └── worker.ps1           # detached delayed-delivery worker
 │   ├── config/notify.example.json
-│   └── test_notify.sh
+│   ├── test_notify.sh       # POSIX suite
+│   └── test_windows.ps1     # native Windows suite (capture mode, no network)
 ├── skills -> plugins/codex-push-hooks/skills
 ├── hooks -> plugins/codex-push-hooks/hooks
 ├── scripts -> plugins/codex-push-hooks/scripts
@@ -496,7 +528,8 @@ codex-push-hooks/
 ├── install.sh               # standalone installer entry point (router)
 ├── install/
 │   ├── claude.sh            # Claude Code install branch
-│   ├── codex.sh             # Codex CLI install branch
+│   ├── codex.sh             # Codex CLI install branch (POSIX)
+│   ├── codex.ps1            # Codex CLI install branch (native Windows)
 │   ├── reasonix.sh          # Reasonix install branch (reasonix plugin install --link)
 │   └── dsh.sh               # dsh install branch (plugin symlink + cordis.patch.yml insert)
 └── test_notify.sh -> plugins/codex-push-hooks/test_notify.sh

@@ -7,6 +7,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/scripts/notify.sh\" notification",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}\\scripts\\windows\\hook.ps1\" notification",
             "timeout": 5
           }
         ]
@@ -19,6 +20,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/scripts/notify.sh\" stop",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}\\scripts\\windows\\hook.ps1\" stop",
             "timeout": 5
           }
         ]
@@ -31,6 +33,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/scripts/clear_pending.sh\"",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}\\scripts\\windows\\hook.ps1\" clear",
             "timeout": 3
           }
         ]
@@ -43,6 +46,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/scripts/pre_tool_use.sh\"",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}\\scripts\\windows\\hook.ps1\" pre-tool-use",
             "timeout": 3
           }
         ]
@@ -55,6 +59,7 @@
           {
             "type": "command",
             "command": "bash \"${PLUGIN_ROOT}/scripts/clear_pending.sh\" user_input",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${PLUGIN_ROOT}\\scripts\\windows\\hook.ps1\" clear user_input",
             "timeout": 3
           }
         ]

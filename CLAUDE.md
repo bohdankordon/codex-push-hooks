@@ -16,6 +16,7 @@ plugins/codex-push-hooks/    # the real plugin root (the scripts/hooks/config en
 ├── scripts/clear_pending.sh# clear pending notifications (triggered on user interaction)
 ├── scripts/pre_tool_use.sh # question-tool dispatcher (request_user_input / ask / AskUserQuestion)
 ├── scripts/channels/*.sh   # 11 channel implementations
+├── scripts/windows/        # native Windows runtime: hook.ps1 (entry), worker.ps1 (detached delivery), CodexPushHooks.psm1 (shared logic; no Bash/jq/curl/WSL)
 ├── hooks/hooks.json        # Claude Code hook event definitions
 ├── hooks/codex-hooks.json  # Codex CLI hook event definitions
 ├── reasonix-plugin.json    # native Reasonix plugin manifest (v2, payloadFormat=claude)
@@ -26,6 +27,7 @@ plugins/codex-push-hooks/    # the real plugin root (the scripts/hooks/config en
 └── skills/config/SKILL.md  # interactive configuration skill (Claude Code only)
 install.sh                  # standalone installer entry point (router)
 install/{claude,codex,reasonix,dsh}.sh
+install/codex.ps1            # native Windows Codex installer (PowerShell, custom CODEX_HOME, hooks.json merge)
 test_notify.sh              # channel connectivity + template/agent detection tests
 ```
 
