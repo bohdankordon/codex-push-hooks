@@ -176,6 +176,12 @@ function Test-CphAsyncQuestionPayload {
     param($ToolInput)
     try {
         if ($null -eq $ToolInput) { return $false }
+        # The handler's top-level args struct also denies unknown fields, so the
+        # raw tool_input must be an object carrying exactly one field: questions.
+        if ($ToolInput -is [string] -or $ToolInput -is [ValueType] -or $ToolInput -is [System.Array]) { return $false }
+        if ($ToolInput -is [System.Collections.IDictionary]) { $toolFields = @($ToolInput.Keys) }
+        else { $toolFields = @($ToolInput.PSObject.Properties | ForEach-Object { $_.Name }) }
+        if ($toolFields.Count -ne 1 -or [string]$toolFields[0] -ne 'questions') { return $false }
         $questions = Get-CphRawFieldArray -Object $ToolInput -Name 'questions'
         if (-not ($questions -is [System.Array])) { return $false }
         $items = @($questions)

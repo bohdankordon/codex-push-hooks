@@ -889,6 +889,28 @@ Invoke-Case '49-async-valid-multi-question' {
     Assert-True ($code -eq 0) 'multi-question async exits 0'
     Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $d 'state') -Filter 'pending_async-multi-session_user_input_*').Count -eq 1) 'multi-question async creates the pending marker'
 }
+Invoke-Case '50-async-invalid-root-extra-field' {
+    # The handler's top-level args struct denies unknown fields too: only
+    # "questions" may appear beside it, so a valid question list plus a root
+    # extra field is rejected after PreToolUse and must never notify.
+    Assert-InvalidAsyncPayload -Name 'rootextra' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-root-extra","session_id":"rootextra","tool_input":{"questions":[{"title":"Question?"}],"extra":true}}'
+    Assert-InvalidAsyncPayload -Name 'toolinputnotobject' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-ti-array","session_id":"toolinputnotobject","tool_input":["questions"]}'
+    Assert-InvalidAsyncPayload -Name 'toolinputstring' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-ti-string","session_id":"toolinputstring","tool_input":"questions"}'
+}
+Invoke-Case '51-async-valid-explicit-null-options' {
+    # The handler models options as Option<Vec<String>>: an explicit null is
+    # valid and behaves like options omitted.
+    $d = New-CaseDir
+    $json = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-nullopts","session_id":"async-null-session","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Describe the environment","options":null}]}}'
+    $e = ConvertFrom-CphHookJson -RawJson $json
+    Assert-True ($e['AsyncQuestionPayloadValid'] -eq $true) 'explicit null options are a valid async payload'
+    $c = Get-CphNotificationContent -Event $e -EventType 'notification' -EventKind 'user_input'
+    Assert-True ($c['Title'] -match 'Reply needed') 'explicit null options still notify'
+    Assert-True ($c['OptionLabels'].Count -eq 0) 'explicit null options yield zero option labels'
+    $code = Invoke-AsyncPreToolUse -Json $json -Dir $d
+    Assert-True ($code -eq 0) 'explicit null options exit 0'
+    Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $d 'state') -Filter 'pending_async-null-session_user_input_*').Count -eq 1) 'explicit null options create the pending marker'
+}
 Write-Output ''
 Write-Output ('PSVersion=' + [string]$PSVersionTable.PSVersion)
 try { Write-Output ('OS=' + [string][System.Environment]::OSVersion.VersionString) } catch { }

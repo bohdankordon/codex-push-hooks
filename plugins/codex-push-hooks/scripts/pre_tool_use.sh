@@ -42,7 +42,9 @@ case "$TOOL_NAME" in
                 elif ((.options | length) < 1) then false
                 else ([.options[] | valid_option] | all)
                 end;
-            if (.tool_input.questions? | type) != "array" then false
+            if ((.tool_input | type) != "object") then false
+            elif (((.tool_input | keys_unsorted) - ["questions"]) | length) != 0 then false
+            elif (.tool_input.questions? | type) != "array" then false
             elif (.tool_input.questions | length) < 1 then false
             else all(.tool_input.questions[]; valid_question)
             end

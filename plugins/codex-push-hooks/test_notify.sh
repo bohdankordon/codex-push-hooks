@@ -305,7 +305,7 @@ test_user_input_flow() {
         echo -e "${YELLOW}[request_user_input]${NC} verifying the dispatcher, templates, and quiet degradation..."
 
         local tmp_base tmp_root state_dir out markdown fallback_out empty_out invalid_out no_jq_out
-        local async_out async_empty_out async_free_out async_config pre_matcher post_matcher
+        local async_out async_empty_out async_free_out async_null_out async_config pre_matcher post_matcher
         local capture_file feishu_payload discord_payload
         local bash_bin minimal_bin
         tmp_base="${TMPDIR:-/tmp}"
@@ -414,6 +414,16 @@ test_user_input_flow() {
             return 1
         fi
 
+        # The runtime models options as Option<Vec<String>>, so an explicit null
+        # is valid and behaves like options omitted.
+        async_null_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"async-null","turn_id":"turn-async-null","tool_name":"request_user_input_async","tool_use_id":"call-async-null","tool_input":{"questions":[{"title":"Describe the environment","options":null}]},"cwd":"/tmp/demo-project"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ "$(printf '%s' "$async_null_out" | jq -r '.event_kind')" != "user_input" ] ||
+           [ "$(printf '%s' "$async_null_out" | jq -r '.option_labels | length')" != "0" ]; then
+            echo -e "${RED}[request_user_input_async]${NC} explicit null options must be valid and render with zero option labels: $async_null_out"
+            return 1
+        fi
+
         # Payloads the current async handler rejects (validated after PreToolUse)
         # must stay quiet AND keep existing pending state: no notify, no clear.
         async_invalid_case() {
@@ -442,6 +452,8 @@ test_user_input_flow() {
         async_invalid_case 'nonstring' '{"hook_event_name":"PreToolUse","session_id":"nonstring","tool_name":"request_user_input_async","tool_use_id":"call-async-4","tool_input":{"questions":[{"title":"Which environment?","options":["A",123]}]}}'
         async_invalid_case 'unknownfield' '{"hook_event_name":"PreToolUse","session_id":"unknownfield","tool_name":"request_user_input_async","tool_use_id":"call-async-5","tool_input":{"questions":[{"title":"Question?","extra":true}]}}'
         async_invalid_case 'laterinvalid' '{"hook_event_name":"PreToolUse","session_id":"laterinvalid","tool_name":"request_user_input_async","tool_use_id":"call-async-6","tool_input":{"questions":[{"title":"First?","options":["A"]},{"title":"  "}]}}'
+        async_invalid_case 'rootextra' '{"hook_event_name":"PreToolUse","session_id":"rootextra","tool_name":"request_user_input_async","tool_use_id":"call-async-7","tool_input":{"questions":[{"title":"Question?"}],"extra":true}}'
+        async_invalid_case 'toolinputarr' '{"hook_event_name":"PreToolUse","session_id":"toolinputarr","tool_name":"request_user_input_async","tool_use_id":"call-async-8","tool_input":["questions"]}'
 
         # Async lifecycle: the async tool's immediate completion is NOT wired to the
         # PostToolUse user_input clear hook -- the later UserPromptSubmit clears instead.
