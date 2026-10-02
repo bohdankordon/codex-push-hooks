@@ -116,6 +116,24 @@ function Get-CphStringField {
     return ''
 }
 
+# Like Get-CphRawField, but preserves array values. PowerShell enumerates a
+# function's output, so a single-element array returned through Get-CphRawField
+# arrives as its element; the ",$value" idiom keeps the array intact. Used by
+# the async question-payload validation, which must tell an array from a scalar.
+function Get-CphRawFieldArray {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    try {
+        if ($Object -is [System.Collections.IDictionary]) {
+            if ($Object.Contains($Name)) { return ,$Object[$Name] }
+            return $null
+        }
+        $prop = $Object.PSObject.Properties[$Name]
+        if ($null -ne $prop) { return ,$prop.Value }
+    } catch { }
+    return $null
+}
+
 function Read-CphJsonObject {
     param([string]$Raw)
     if ([string]::IsNullOrEmpty($Raw)) { return $null }
@@ -142,6 +160,48 @@ function ConvertTo-CphArray {
     if ($null -eq $Value) { return @() }
     if ($Value -is [System.Array]) { return $Value }
     return @($Value)
+}
+
+# Validates the current request_user_input_async argument contract. Codex runs
+# PreToolUse before the tool handler parses and validates its arguments, so an
+# invalid call would otherwise create a "Reply needed" notification for a
+# question the user never sees (the handler rejects it, PostToolUse never runs,
+# and no later event clears the pending state). Accepted shape:
+#   questions: non-empty array; every entry an object with only the
+#   title/options fields; title a non-blank string; options, when present,
+#   a non-empty array of non-blank strings.
+# Windows PowerShell 5.1's JSON reader keeps property-level arrays (including
+# single-element ones) as System.Array, so the strict array checks hold there.
+function Test-CphAsyncQuestionPayload {
+    param($ToolInput)
+    try {
+        if ($null -eq $ToolInput) { return $false }
+        $questions = Get-CphRawFieldArray -Object $ToolInput -Name 'questions'
+        if (-not ($questions -is [System.Array])) { return $false }
+        $items = @($questions)
+        if ($items.Count -lt 1) { return $false }
+        foreach ($q in $items) {
+            if ($null -eq $q -or $q -is [string] -or $q -is [ValueType] -or $q -is [System.Array]) { return $false }
+            $fields = @($q.PSObject.Properties | ForEach-Object { $_.Name })
+            foreach ($f in $fields) {
+                if ($f -ne 'title' -and $f -ne 'options') { return $false }
+            }
+            $title = Get-CphRawField -Object $q -Name 'title'
+            if (-not ($title -is [string])) { return $false }
+            if ($title.Trim() -eq '') { return $false }
+            $options = Get-CphRawFieldArray -Object $q -Name 'options'
+            if ($null -ne $options) {
+                if (-not ($options -is [System.Array])) { return $false }
+                $optionItems = @($options)
+                if ($optionItems.Count -lt 1) { return $false }
+                foreach ($o in $optionItems) {
+                    if (-not ($o -is [string])) { return $false }
+                    if ($o.Trim() -eq '') { return $false }
+                }
+            }
+        }
+        return $true
+    } catch { return $false }
 }
 
 #endregion
@@ -197,6 +257,7 @@ function ConvertFrom-CphHookJson {
     $qHeader = ''
     $qText = ''
     $optLabels = @()
+    $toolInput = $null
     try {
         $toolInput = Get-CphRawField -Object $obj -Name 'tool_input'
         if ($null -eq $toolInput) { $toolInput = Get-CphRawField -Object $obj -Name 'toolInput' }
@@ -223,6 +284,13 @@ function ConvertFrom-CphHookJson {
             }
         }
     } catch { }
+    # Async question payloads are validated against the current handler contract
+    # so an invalid call never notifies (the handler rejects it after PreToolUse,
+    # and PostToolUse never runs to clear the pending state).
+    $asyncValid = $false
+    if ($toolName -eq 'request_user_input_async') {
+        $asyncValid = Test-CphAsyncQuestionPayload -ToolInput $toolInput
+    }
     return @{
         HookEvent = $hookEvent
         Message = $message
@@ -242,6 +310,7 @@ function ConvertFrom-CphHookJson {
         QuestionHeader = $qHeader
         QuestionText = $qText
         OptionLabels = $optLabels
+        AsyncQuestionPayloadValid = $asyncValid
     }
 }
 

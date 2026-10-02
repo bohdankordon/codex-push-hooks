@@ -104,7 +104,16 @@ try {
             # clears the pending notification instead.
             $questionTools = @('request_user_input', 'request_user_input_async', 'ask', 'AskUserQuestion')
             if ($questionTools -contains $tn) {
-                if ([int]$pe['QuestionCount'] -gt 0) {
+                $notify = ([int]$pe['QuestionCount'] -gt 0)
+                if ($tn -eq 'request_user_input_async' -and -not [bool]$pe['AsyncQuestionPayloadValid']) {
+                    # Codex validates the async tool's arguments only after PreToolUse
+                    # runs, so a payload the handler will reject must stay quiet: no
+                    # notification (the user never sees the question) and no clear
+                    # (the tool is still recognized, so it must not fall through to
+                    # the ordinary-tool clear behavior).
+                    $notify = $false
+                }
+                if ($notify) {
                     Invoke-NotifyFlow -RawInput $raw -EventType 'notification' -EventKind 'user_input'
                 }
             } else {

@@ -50,8 +50,11 @@ Each channel has its own configurable delay. Enable only the channels you need; 
 ```
 Claude Code / Codex CLI events
     │
-    ├─ Codex request_user_input / request_user_input_async → PreToolUse dispatcher → waiting-for-input notification
+    ├─ Codex request_user_input (sync) → PreToolUse dispatcher → waiting-for-input notification
     │                                      └─ PostToolUse → targeted cancel
+    ├─ Codex request_user_input_async → PreToolUse dispatcher (payload validated against the handler contract)
+    │                                      → waiting-for-input notification
+    │                                      └─ later UserPromptSubmit → cancel
     ▼
 notify.sh ── clear stale pending for this session → create a new pending marker
     │
@@ -409,7 +412,7 @@ The complete template is in [`config/notify.example.json`](config/notify.example
 
 > Codex has no dedicated waiting-for-input event. The plugin detects the waiting state precisely through `PreToolUse(request_user_input)` / `PreToolUse(request_user_input_async)` and reuses the `notification` channel configuration.
 
-> Current Codex exposes two question tools: the synchronous `request_user_input` (header/question plus label options) and the asynchronous `request_user_input_async` (a single `title` plus string options). The async tool returns as soon as the question is presented, so its immediate completion is not the user's answer: the pending notification stays until the reply arrives later as a new message and `UserPromptSubmit` clears it.
+> Current Codex exposes two question tools: the synchronous `request_user_input` (header/question plus label options) and the asynchronous `request_user_input_async` (a single `title` plus string options). The async tool returns as soon as the question is presented, so its immediate completion is not the user's answer: the pending notification stays until the reply arrives later as a new message and `UserPromptSubmit` clears it. Codex also validates the async tool's arguments *after* `PreToolUse` runs, so the dispatcher mirrors the current async contract (a question array whose every entry has a non-blank `title` and, when present, a non-empty array of non-blank string options) and stays quiet for a payload the handler will reject: no notification is created for a question the user never sees.
 
 > On Windows the same five hooks run through `commandWindows` PowerShell entry points (`scripts/windows/hook.ps1`) with identical behavior; see [Native Windows Codex runtime](#native-windows-codex-runtime-no-bashjqwsl).
 

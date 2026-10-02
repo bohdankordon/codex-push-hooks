@@ -115,6 +115,7 @@ the installer behavior.
 - Marketplace: `.agents/plugins/marketplace.json`; the `policy` block requires `installation`/`authentication`/`category`
 - Enabling hooks requires `[features]` with `hooks = true` in `~/.codex/config.toml` (`codex_hooks = true` is the deprecated compatibility alias and is still detected)
 - Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)
+- `request_user_input_async` is a distinct async question tool: PreToolUse runs before the handler validates its arguments, so the dispatcher validates the current async contract before notifying, and its completion is never wired to the PostToolUse clear hook (the later UserPromptSubmit clears the pending state)
 
 **Reasonix**:
 - Manifest: `reasonix-plugin.json` (`reasonix.io/plugin/v2`, parsed strictly: unknown fields such as author/license/keywords are not allowed)

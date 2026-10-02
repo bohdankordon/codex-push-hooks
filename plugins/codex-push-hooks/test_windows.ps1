@@ -92,6 +92,37 @@ function Get-HookExit {
     return $p.ExitCode
 }
 
+# Runs the real pre-tool-use action against an isolated state dir whose config
+# enables no channels (so no worker spawns) and returns the hook exit code.
+# Pending markers created by the call remain visible in <Dir>/state.
+function Invoke-AsyncPreToolUse {
+    param([string]$Json, [string]$Dir)
+    $sd = Join-Path $Dir 'state'
+    New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $cfg = Write-TestConfig -Dir $Dir -Body '{"channels":{}}'
+    $extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd; 'CC_NOTIFY_CONFIG' = $cfg }
+    return Get-HookExit -Json $Json -Action 'pre-tool-use' -ExtraEnv $extra
+}
+
+# Shared assertions for an async payload the Codex handler will reject: quiet in
+# render mode, quiet through the real action path, no new pending marker, and an
+# existing pending marker left untouched.
+function Assert-InvalidAsyncPayload {
+    param([string]$Name, [string]$Json)
+    $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $pend = Join-Path $sd ('pending_' + $Name + '_user_input_x_1_1')
+    [System.IO.File]::WriteAllText($pend, 'user_input', [System.Text.Encoding]::UTF8)
+    $e = ConvertFrom-CphHookJson -RawJson $Json
+    Assert-True ($e['AsyncQuestionPayloadValid'] -eq $false) ($Name + ' is flagged as an invalid async payload')
+    $render = Get-HookStdout -Json $Json -Action 'pre-tool-use' -ExtraEnv @{ 'CC_NOTIFY_STATE_DIR' = $sd }
+    Assert-True ($render.Code -eq 0) ($Name + ' exits 0 in render mode')
+    Assert-True ([string]::IsNullOrWhiteSpace($render.Out)) ($Name + ' renders no notification')
+    $code = Invoke-AsyncPreToolUse -Json $Json -Dir $d
+    Assert-True ($code -eq 0) ($Name + ' exits 0 on the real action path')
+    Assert-True (Test-Path -LiteralPath $pend) ($Name + ' keeps existing pending state')
+    Assert-True (@(Get-ChildItem -LiteralPath $sd -Filter 'pending_*').Count -eq 1) ($Name + ' creates no new pending marker')
+}
+
 # Decodes the quote-free -EncodedCommand bootstrap carried by a
 # commandWindows entry, so tests can assert what the opaque payload does.
 function Get-DecodedHookCommand {
@@ -734,10 +765,11 @@ Invoke-Case '36-request-user-input-async-render' {
     Assert-True ($c['Body'] -match 'Questions: 1') 'async question count in body'
     Assert-True ($c['Body'] -match 'Session async-se') 'async short session in body'
 }
-Invoke-Case '37-async-lifecycle-survives-tool-completion' {
-    # PreToolUse(request_user_input_async) creates the Reply-needed pending state;
-    # the immediate async tool completion must NOT clear it (the manifest
-    # PostToolUse matcher excludes the async tool); the later UserPromptSubmit does.
+Invoke-Case '37-async-pending-survives-until-user-prompt-submit' {
+    # Direct scope: PreToolUse(request_user_input_async) creates the pending state
+    # and a later UserPromptSubmit clears it. This case does not execute a Codex
+    # tool completion; case 39 proves the PostToolUse matcher does not select the
+    # async tool, which is what keeps the marker alive in the real host.
     $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
     $cfg = Write-TestConfig -Dir $d -Body '{"channels":{}}'
     $other = Join-Path $sd 'pending_other-session_user_input_z_1_1'
@@ -748,7 +780,7 @@ Invoke-Case '37-async-lifecycle-survives-tool-completion' {
     Assert-True ($code -eq 0) 'async pre-tool-use exits 0'
     $made = @(Get-ChildItem -LiteralPath $sd -Filter 'pending_async-session_user_input_*')
     Assert-True ($made.Count -eq 1) 'async pre-tool-use created the user_input pending marker'
-    Assert-True (Test-Path -LiteralPath $made[0].FullName) 'pending survives the immediate async completion'
+    Assert-True (Test-Path -LiteralPath $made[0].FullName) 'pending survives until the later user message'
     $up = '{"hook_event_name":"UserPromptSubmit","message":"Staging","session_id":"async-session"}'
     $code2 = Get-HookExit -Json $up -Action 'clear' -ExtraEnv $extra
     Assert-True ($code2 -eq 0) 'UserPromptSubmit clear exits 0'
@@ -805,6 +837,57 @@ Invoke-Case '41-question-tool-compatibility-names' {
         Assert-True (Test-Path -LiteralPath $pend) ($name + ' kept the pending marker (notification path, not clear)')
         Remove-Item -LiteralPath $pend -Force
     }
+}
+Invoke-Case '42-async-valid-free-text-question' {
+    $d = New-CaseDir
+    $json = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-free","session_id":"async-free-session","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Describe the environment"}]}}'
+    $e = ConvertFrom-CphHookJson -RawJson $json
+    Assert-True ($e['AsyncQuestionPayloadValid'] -eq $true) 'free-text async payload is valid'
+    $c = Get-CphNotificationContent -Event $e -EventType 'notification' -EventKind 'user_input'
+    Assert-True ($c['Title'] -match 'Reply needed') 'free-text async notifies'
+    Assert-True ($c['OptionLabels'].Count -eq 0) 'free-text async has zero option labels'
+    $code = Invoke-AsyncPreToolUse -Json $json -Dir $d
+    Assert-True ($code -eq 0) 'free-text async exits 0'
+    Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $d 'state') -Filter 'pending_async-free-session_user_input_*').Count -eq 1) 'free-text async creates the pending marker'
+}
+Invoke-Case '43-async-invalid-object-options' {
+    # Stage 3B observed real async calls with object/map options being rejected
+    # by the Codex handler: this exact class must never notify.
+    Assert-InvalidAsyncPayload -Name 'objopts' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-objopts","session_id":"objopts","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Which environment?","options":[{"label":"Staging"},{"label":"Production"}]}]}}'
+    # Validation and rendering normalization stay separate concerns: object
+    # labels still normalize for the synchronous/compat schemas.
+    $e = ConvertFrom-CphHookJson -RawJson '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-objopts","session_id":"objopts","tool_input":{"questions":[{"title":"Which environment?","options":[{"label":"Staging"}]}]}}'
+    Assert-True ($e['QuestionCount'] -eq 1) 'object-option async still parses for rendering'
+    Assert-True ($e['OptionLabels'].Count -eq 1) 'object labels still normalize when rendering'
+    Assert-True ($e['AsyncQuestionPayloadValid'] -eq $false) 'object labels alone never make the async payload valid'
+}
+Invoke-Case '44-async-invalid-empty-options' {
+    Assert-InvalidAsyncPayload -Name 'emptyopts' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-emptyopts","session_id":"emptyopts","tool_input":{"questions":[{"title":"Which environment?","options":[]}]}}'
+}
+Invoke-Case '45-async-invalid-blank-title' {
+    Assert-InvalidAsyncPayload -Name 'blanktitle' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-blanktitle","session_id":"blanktitle","tool_input":{"questions":[{"title":"   ","options":["A"]}]}}'
+}
+Invoke-Case '46-async-invalid-non-string-option' {
+    Assert-InvalidAsyncPayload -Name 'nonstring' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-nonstring","session_id":"nonstring","tool_input":{"questions":[{"title":"Which environment?","options":["A",123]}]}}'
+}
+Invoke-Case '47-async-invalid-unknown-question-field' {
+    Assert-InvalidAsyncPayload -Name 'unknownfield' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-unknownfield","session_id":"unknownfield","tool_input":{"questions":[{"title":"Question?","extra":true}]}}'
+}
+Invoke-Case '48-async-invalid-later-question' {
+    # If ANY question is invalid the runtime rejects the whole argument object.
+    Assert-InvalidAsyncPayload -Name 'laterinvalid' -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-laterinvalid","session_id":"laterinvalid","tool_input":{"questions":[{"title":"First?","options":["A"]},{"title":"  "}]}}'
+}
+Invoke-Case '49-async-valid-multi-question' {
+    $d = New-CaseDir
+    $json = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-multi","session_id":"async-multi-session","cwd":"C:/w/project","tool_input":{"questions":[{"title":"First?","options":["A","B"]},{"title":"Second?"}]}}'
+    $e = ConvertFrom-CphHookJson -RawJson $json
+    Assert-True ($e['AsyncQuestionPayloadValid'] -eq $true) 'multi-question async payload is valid'
+    $c = Get-CphNotificationContent -Event $e -EventType 'notification' -EventKind 'user_input'
+    Assert-True ($c['QuestionCount'] -eq 2) 'multi-question async question count'
+    Assert-True ($c['OptionLabels'].Count -eq 2) 'multi-question async first-question labels'
+    $code = Invoke-AsyncPreToolUse -Json $json -Dir $d
+    Assert-True ($code -eq 0) 'multi-question async exits 0'
+    Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $d 'state') -Filter 'pending_async-multi-session_user_input_*').Count -eq 1) 'multi-question async creates the pending marker'
 }
 Write-Output ''
 Write-Output ('PSVersion=' + [string]$PSVersionTable.PSVersion)
