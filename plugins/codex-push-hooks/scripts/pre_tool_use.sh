@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Question-tool PreToolUse dispatcher (shared by Codex / Reasonix / dsh)
-# request_user_input (Codex) and ask / AskUserQuestion (Reasonix/dsh) trigger a waiting notification;
-# every other tool keeps the existing pending-clearing behavior.
+# request_user_input / request_user_input_async (Codex) and ask / AskUserQuestion (Reasonix/dsh)
+# trigger a waiting notification; every other tool keeps the existing pending-clearing behavior.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EVENT_DATA=$(cat 2>/dev/null || true)
@@ -14,7 +14,7 @@ printf '%s' "$EVENT_DATA" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 TOOL_NAME=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_name // empty' 2>/dev/null || true)
 
 case "$TOOL_NAME" in
-    request_user_input|ask|AskUserQuestion)
+    request_user_input|request_user_input_async|ask|AskUserQuestion)
         QUESTION_COUNT=$(printf '%s' "$EVENT_DATA" | jq -r '
             if (.tool_input.questions? | type) == "array"
             then (.tool_input.questions | length)

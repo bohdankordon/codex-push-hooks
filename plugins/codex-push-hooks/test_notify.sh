@@ -9,7 +9,7 @@
 #   bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event (prompt field)
 #   bash test_notify.sh list         # list the enabled channels
 #   bash test_notify.sh codex-plugin-hooks  # verify Codex plugin hooks do not depend on the session cwd
-#   bash test_notify.sh user-input    # verify the request_user_input dispatcher and templates
+#   bash test_notify.sh user-input    # verify the request_user_input / request_user_input_async dispatcher and templates
 #   bash test_notify.sh state         # verify session-scoped state, deduplication, and clearing
 #   bash test_notify.sh render        # verify the notification title and body templates
 #   bash test_notify.sh agents        # verify Reasonix / dsh agent detection and event fields
@@ -305,6 +305,7 @@ test_user_input_flow() {
         echo -e "${YELLOW}[request_user_input]${NC} verifying the dispatcher, templates, and quiet degradation..."
 
         local tmp_base tmp_root state_dir out markdown fallback_out empty_out invalid_out no_jq_out
+        local async_out async_empty_out pre_matcher post_matcher
         local capture_file feishu_payload discord_payload
         local bash_bin minimal_bin
         tmp_base="${TMPDIR:-/tmp}"
@@ -380,6 +381,37 @@ test_user_input_flow() {
         if [ "$(printf '%s' "$fallback_out" | jq -r '.summary_short')" != "Choose the fix scope" ] ||
            [ "$(printf '%s' "$fallback_out" | jq -r '.session_short')" != "turn-onl" ]; then
             echo -e "${RED}[request_user_input]${NC} question/turn_id fallback is wrong: $fallback_out"
+            return 1
+        fi
+
+        async_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-async-input","turn_id":"turn-async","tool_name":"request_user_input_async","tool_use_id":"call-async-input","tool_input":{"questions":[{"title":"Which environment should I use?","options":["Staging","Production"]}]},"cwd":"/tmp/demo-project","model":"gpt-5.5"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ "$(printf '%s' "$async_out" | jq -r '.title')" != "Codex · Reply needed 🔔" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.event_kind')" != "user_input" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.question_count')" != "1" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.summary_short')" != "Which environment should I use?" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.option_labels | join(",")')" != "Staging,Production" ]; then
+            echo -e "${RED}[request_user_input_async]${NC} the async question fixture is rendered wrong: $async_out"
+            return 1
+        fi
+
+        touch "${state_dir}/pending_async-empty_user_input_call-async-empty_1_1"
+        async_empty_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"async-empty","tool_name":"request_user_input_async","tool_use_id":"call-async-empty","tool_input":{"questions":[]}}' \
+            | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ -n "$async_empty_out" ] ||
+           ! compgen -G "${state_dir}/pending_async-empty_*" >/dev/null; then
+            echo -e "${RED}[request_user_input_async]${NC} an empty async question list must stay quiet and keep pending state"
+            return 1
+        fi
+
+        # Async lifecycle: the async tool's immediate completion is NOT wired to the
+        # PostToolUse user_input clear hook -- the later UserPromptSubmit clears instead.
+        pre_matcher=$(jq -r '.hooks.PreToolUse[0].matcher' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        post_matcher=$(jq -r '.hooks.PostToolUse[0].matcher' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        if [ "$pre_matcher" != "*" ] ||
+           [ "$post_matcher" != '^request_user_input$' ] ||
+           printf '%s' 'request_user_input_async' | grep -Eq "$post_matcher"; then
+            echo -e "${RED}[request_user_input_async]${NC} the PostToolUse clear matcher must stay exactly ^request_user_input\$ so async completion keeps the pending marker"
             return 1
         fi
 

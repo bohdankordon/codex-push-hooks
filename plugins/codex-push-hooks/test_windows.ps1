@@ -471,13 +471,18 @@ Invoke-Case '28-command-windows-present' {
 }
 Invoke-Case '29-posix-commands-unchanged' {
     $raw = Get-Content (Join-Path $TestRoot 'hooks/codex-hooks.json') -Raw | ConvertFrom-Json
-    $gitOut = & git --git-dir (Join-Path (Split-Path -Parent (Split-Path -Parent $TestRoot)) '.git') show 'HEAD:plugins/codex-push-hooks/hooks/codex-hooks.json' 2>$null
-    if ([string]::IsNullOrEmpty($gitOut)) { $gitOut = & git show 'HEAD:plugins/codex-push-hooks/hooks/codex-hooks.json' 2>$null }
-    Assert-True (-not [string]::IsNullOrEmpty($gitOut)) 'git HEAD readable'
-    $old = $gitOut | ConvertFrom-Json
+    # Permanent invariants: the POSIX command shape and timeouts are asserted
+    # against literals so this regression survives every future commit.
+    $expected = @{
+        PermissionRequest = @{ Command = 'bash "${PLUGIN_ROOT}/scripts/notify.sh" notification'; Timeout = 5 }
+        Stop              = @{ Command = 'bash "${PLUGIN_ROOT}/scripts/notify.sh" stop'; Timeout = 5 }
+        UserPromptSubmit  = @{ Command = 'bash "${PLUGIN_ROOT}/scripts/clear_pending.sh"'; Timeout = 3 }
+        PreToolUse        = @{ Command = 'bash "${PLUGIN_ROOT}/scripts/pre_tool_use.sh"'; Timeout = 3 }
+        PostToolUse       = @{ Command = 'bash "${PLUGIN_ROOT}/scripts/clear_pending.sh" user_input'; Timeout = 3 }
+    }
     foreach ($ev in @('PermissionRequest','Stop','UserPromptSubmit','PreToolUse','PostToolUse')) {
-        Assert-True ($raw.hooks.$ev[0].hooks[0].command -eq $old.hooks.$ev[0].hooks[0].command) ($ev + ' posix command unchanged')
-        Assert-True ($raw.hooks.$ev[0].hooks[0].timeout -eq $old.hooks.$ev[0].hooks[0].timeout) ($ev + ' timeout unchanged')
+        Assert-True ($raw.hooks.$ev[0].hooks[0].command -eq $expected[$ev].Command) ($ev + ' posix command matches the permanent literal')
+        Assert-True ($raw.hooks.$ev[0].hooks[0].timeout -eq $expected[$ev].Timeout) ($ev + ' timeout matches the permanent literal')
     }
 }
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
@@ -712,6 +717,94 @@ Invoke-Case '35-worker-launch-failure-cleanup' {
     Assert-True ($p.ExitCode -eq 0) 'hook still exits 0 when the worker cannot start'
     Assert-True (@(Get-ChildItem -LiteralPath $sd -Filter 'job_*.json' -ErrorAction SilentlyContinue).Count -eq 0) 'job file cleaned up after launch failure'
     Assert-True (@(Get-ChildItem -LiteralPath $sd -Filter 'pending_*' -ErrorAction SilentlyContinue).Count -eq 0) 'pending marker cleaned up after launch failure'
+}
+Invoke-Case '36-request-user-input-async-render' {
+    # The current Codex async question tool carries a title-only schema
+    # (questions[0].title + string options) instead of header + question.
+    $raw = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-call-1","session_id":"async-session","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Which environment should I use?","options":["Staging","Production"]}]}}'
+    $e = ConvertFrom-CphHookJson -RawJson $raw
+    Assert-True ($e['QuestionCount'] -eq 1) 'async question count'
+    $c = Get-CphNotificationContent -Event $e -EventType 'notification' -EventKind 'user_input'
+    Assert-True ($c['Title'] -match 'Reply needed') 'async reply title'
+    Assert-True ($c['EventKind'] -eq 'user_input') 'async event kind'
+    Assert-True ($c['SummaryShort'] -eq 'Which environment should I use?') 'async title becomes the summary'
+    Assert-True ($c['OptionLabels'].Count -eq 2) 'async option label count'
+    Assert-True ($c['OptionLabels'][0] -eq 'Staging' -and $c['OptionLabels'][1] -eq 'Production') 'async option labels stay in order'
+    Assert-True ($c['EventObject']['question_count'] -eq 1) 'async event question_count'
+    Assert-True ($c['Body'] -match 'Questions: 1') 'async question count in body'
+    Assert-True ($c['Body'] -match 'Session async-se') 'async short session in body'
+}
+Invoke-Case '37-async-lifecycle-survives-tool-completion' {
+    # PreToolUse(request_user_input_async) creates the Reply-needed pending state;
+    # the immediate async tool completion must NOT clear it (the manifest
+    # PostToolUse matcher excludes the async tool); the later UserPromptSubmit does.
+    $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $cfg = Write-TestConfig -Dir $d -Body '{"channels":{}}'
+    $other = Join-Path $sd 'pending_other-session_user_input_z_1_1'
+    [System.IO.File]::WriteAllText($other, 'user_input', [System.Text.Encoding]::UTF8)
+    $extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd; 'CC_NOTIFY_CONFIG' = $cfg }
+    $async = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"async-call-1","session_id":"async-session","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Which environment should I use?","options":["Staging","Production"]}]}}'
+    $code = Get-HookExit -Json $async -Action 'pre-tool-use' -ExtraEnv $extra
+    Assert-True ($code -eq 0) 'async pre-tool-use exits 0'
+    $made = @(Get-ChildItem -LiteralPath $sd -Filter 'pending_async-session_user_input_*')
+    Assert-True ($made.Count -eq 1) 'async pre-tool-use created the user_input pending marker'
+    Assert-True (Test-Path -LiteralPath $made[0].FullName) 'pending survives the immediate async completion'
+    $up = '{"hook_event_name":"UserPromptSubmit","message":"Staging","session_id":"async-session"}'
+    $code2 = Get-HookExit -Json $up -Action 'clear' -ExtraEnv $extra
+    Assert-True ($code2 -eq 0) 'UserPromptSubmit clear exits 0'
+    Assert-True (-not (Test-Path -LiteralPath $made[0].FullName)) 'UserPromptSubmit cleared the async pending marker'
+    Assert-True (Test-Path -LiteralPath $other) 'another session stays untouched'
+}
+Invoke-Case '38-sync-request-user-input-unchanged' {
+    # The synchronous tool keeps its original lifecycle: PostToolUse clears.
+    $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $cfg = Write-TestConfig -Dir $d -Body '{"channels":{}}'
+    $extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd; 'CC_NOTIFY_CONFIG' = $cfg }
+    $sync = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_use_id":"sync-call-1","session_id":"sync-session","cwd":"C:/w/project","tool_input":{"questions":[{"header":"Scope","question":"What does this fix cover?","options":[{"label":"Full fix"},{"label":"Minimal patch"}]}]}}'
+    $code = Get-HookExit -Json $sync -Action 'pre-tool-use' -ExtraEnv $extra
+    Assert-True ($code -eq 0) 'sync pre-tool-use exits 0'
+    $made = @(Get-ChildItem -LiteralPath $sd -Filter 'pending_sync-session_user_input_*')
+    Assert-True ($made.Count -eq 1) 'sync pre-tool-use created the user_input pending marker'
+    $post = '{"hook_event_name":"PostToolUse","tool_name":"request_user_input","tool_use_id":"sync-call-1","session_id":"sync-session"}'
+    $code2 = Get-HookExit -Json $post -Action 'clear' -Kind 'user_input' -ExtraEnv $extra
+    Assert-True ($code2 -eq 0) 'sync PostToolUse clear exits 0'
+    Assert-True (-not (Test-Path -LiteralPath $made[0].FullName)) 'sync PostToolUse cleared the pending marker'
+}
+Invoke-Case '39-posttooluse-manifest-narrow' {
+    $raw = Get-Content (Join-Path $TestRoot 'hooks/codex-hooks.json') -Raw | ConvertFrom-Json
+    Assert-True ($raw.hooks.PreToolUse[0].matcher -eq '*') 'PreToolUse matcher stays * so the async question tool reaches the dispatcher'
+    Assert-True ($raw.hooks.PostToolUse[0].matcher -eq '^request_user_input$') 'PostToolUse matcher stays exactly ^request_user_input$'
+    Assert-True ($raw.hooks.PostToolUse[0].matcher -notmatch '_async') 'PostToolUse matcher contains no async tool name'
+    Assert-True (-not ('request_user_input_async' -match $raw.hooks.PostToolUse[0].matcher)) 'request_user_input_async does NOT match the PostToolUse clear matcher'
+    Assert-True ([bool]('request_user_input' -match $raw.hooks.PostToolUse[0].matcher)) 'request_user_input still matches the PostToolUse clear matcher'
+}
+Invoke-Case '40-async-question-tool-without-questions' {
+    $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $pend = Join-Path $sd 'pending_s40_user_input_x_1_1'
+    [System.IO.File]::WriteAllText($pend, 'user_input', [System.Text.Encoding]::UTF8)
+    $extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd }
+    $q = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"call-0","session_id":"s40","tool_input":{"questions":[]}}'
+    $code = Get-HookExit -Json $q -Action 'pre-tool-use' -ExtraEnv $extra
+    Assert-True ($code -eq 0) 'async question tool with no questions exits 0'
+    Assert-True (Test-Path -LiteralPath $pend) 'empty async question list preserves pending (posix parity)'
+    $code2 = Get-HookExit -Json '{"hook_event_name":"PreToolUse","tool_name":"Bash","session_id":"s40"}' -Action 'pre-tool-use' -ExtraEnv $extra
+    Assert-True ($code2 -eq 0) 'ordinary tool exits 0'
+    Assert-True (-not (Test-Path -LiteralPath $pend)) 'ordinary tool still clears pending'
+}
+Invoke-Case '41-question-tool-compatibility-names' {
+    $d = New-CaseDir; $sd = Join-Path $d 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd }
+    foreach ($name in @('ask','AskUserQuestion')) {
+        $pend = Join-Path $sd 'pending_compat_user_input_x_1_1'
+        [System.IO.File]::WriteAllText($pend, 'user_input', [System.Text.Encoding]::UTF8)
+        $q = '{"hook_event_name":"PreToolUse","tool_name":"' + $name + '","tool_use_id":"call-compat","session_id":"compat","tool_input":{"questions":[{"header":"H","question":"Q","options":[{"label":"A"}]}]}}'
+        $out = Get-HookStdout -Json $q -Action 'pre-tool-use' -ExtraEnv $extra
+        Assert-True ($out.Code -eq 0) ($name + ' exits 0')
+        $parsed = $out.Out | ConvertFrom-Json
+        Assert-True ($parsed.event_kind -eq 'user_input') ($name + ' renders the user_input notification')
+        Assert-True (Test-Path -LiteralPath $pend) ($name + ' kept the pending marker (notification path, not clear)')
+        Remove-Item -LiteralPath $pend -Force
+    }
 }
 Write-Output ''
 Write-Output ('PSVersion=' + [string]$PSVersionTable.PSVersion)

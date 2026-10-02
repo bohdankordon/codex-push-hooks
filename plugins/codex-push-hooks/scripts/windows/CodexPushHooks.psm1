@@ -205,8 +205,10 @@ function ConvertFrom-CphHookJson {
             if ($qs.Count -gt 0) {
                 $qCount = $qs.Count
                 if ($qCount -gt 0 -and $null -ne $qs[0]) {
-                    $qHeader = Get-CphStringField -Object $qs[0] -Names @('header')
-                    $qText = Get-CphStringField -Object $qs[0] -Names @('question')
+                    # Synchronous question schema: header + question.
+                    # Async request_user_input_async schema: title only.
+                    $qHeader = Get-CphStringField -Object $qs[0] -Names @('header', 'title')
+                    $qText = Get-CphStringField -Object $qs[0] -Names @('question', 'title')
                     $opts = @(ConvertTo-CphArray -Value (Get-CphRawField -Object $qs[0] -Name 'options'))
                     if ($opts.Count -gt 0) {
                         foreach ($o in $opts) {
