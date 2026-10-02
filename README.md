@@ -53,8 +53,9 @@ Claude Code / Codex CLI events
     ├─ Codex request_user_input (sync) → PreToolUse dispatcher → waiting-for-input notification
     │                                      └─ PostToolUse → targeted cancel
     ├─ Codex request_user_input_async → PreToolUse dispatcher (payload validated against the handler contract)
-    │                                      → waiting-for-input notification
-    │                                      └─ later UserPromptSubmit → cancel
+    │                                      → waiting-for-input notification + durable session async-waiting state
+    │                                      └─ later UserPromptSubmit → end waiting + cancel
+    │                                         (Stop and unrelated tool calls do not cancel a live async reply)
     ▼
 notify.sh ── clear stale pending for this session → create a new pending marker
     │
@@ -405,14 +406,16 @@ The complete template is in [`config/notify.example.json`](config/notify.example
 | Hook | Trigger | Behavior |
 |------|---------|----------|
 | PermissionRequest | Codex asks for authorization | Tiered push |
-| Stop | Codex finishes a turn | Tiered push |
+| Stop | Codex finishes a turn | Tiered push (skipped entirely while an async reply is still pending) |
 | UserPromptSubmit | User sends a message | Clear pending |
-| PreToolUse | Before a `request_user_input` / `request_user_input_async` call | Send a "reply needed" notification; other tools clear the current session's pending markers |
+| PreToolUse | Before a `request_user_input` / `request_user_input_async` call | Send a "reply needed" notification; other tools clear the current session's pending markers, except a live async reply pending |
 | PostToolUse | After the synchronous `request_user_input` receives an answer | Cancel only the input notifications for the current session that have not been sent yet |
 
 > Codex has no dedicated waiting-for-input event. The plugin detects the waiting state precisely through `PreToolUse(request_user_input)` / `PreToolUse(request_user_input_async)` and reuses the `notification` channel configuration.
 
 > Current Codex exposes two question tools: the synchronous `request_user_input` (header/question plus label options) and the asynchronous `request_user_input_async` (a single `title` plus string options). The async tool returns as soon as the question is presented, so its immediate completion is not the user's answer: the pending notification stays until the reply arrives later as a new message and `UserPromptSubmit` clears it. Codex also validates the async tool's arguments *after* `PreToolUse` runs, so the dispatcher mirrors the current async contract (a question array whose every entry has a non-blank `title` and, when present, a non-empty array of non-blank string options) and stays quiet for a payload the handler will reject: no notification is created for a question the user never sees.
+
+> An unanswered async question is tracked as durable, session-scoped waiting state, separate from the delivery pending marker (the worker removes that marker once it has delivered, which is not the same thing as the user answering). While it is active, Codex's own `Stop` — the runtime ends the turn as soon as the question is presented — is skipped entirely: no pending marker, no job, no `Task complete` push. Unrelated tool calls do not cancel the reply notification either, because continued tool activity is not a user answer. The state ends on `UserPromptSubmit` for that session, which is how the real answer arrives; a newer question in the same session supersedes it, and an unrelated notification such as `PermissionRequest` can coexist without deleting the reply pending.
 
 > On Windows the same five hooks run through `commandWindows` PowerShell entry points (`scripts/windows/hook.ps1`) with identical behavior; see [Native Windows Codex runtime](#native-windows-codex-runtime-no-bashjqwsl).
 
@@ -498,6 +501,7 @@ Fallback notifications for waiting-for-input also show the number of questions, 
 | Subagent filtering | Skip when `agent_id` is non-empty |
 | Stop-loop protection | Skip when `stop_hook_active=true` |
 | `/exit` silence | Suppress only subsequent Stop events for the current session |
+| Async waiting | While an async question is unanswered, `Stop` is skipped and ordinary tool activity keeps the reply pending until `UserPromptSubmit` |
 | Rate limiting | Throttled per session and event category; `request_user_input` / `request_user_input_async` deduplicate precisely by `tool_use_id` |
 
 ## File structure

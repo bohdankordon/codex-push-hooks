@@ -184,6 +184,14 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
         exit 0
     fi
 
+    # Stop while an async question waits: the runtime ends the turn as soon as
+    # the question is presented, so this Stop is not task completion. Skip it
+    # entirely (no pending, no job, no rate-limit state) so the Reply-needed
+    # delivery survives until the user answers.
+    if [ "$EVENT_TYPE" = "stop" ] && compgen -G "${STATE_DIR}/awaiting_async_${SESSION_KEY}_*" >/dev/null 2>&1; then
+        exit 0
+    fi
+
     # Deduplication: state is isolated per session + event kind.
     # request_user_input / request_user_input_async deduplicate precisely by tool_use_id so a new question right after one is not swallowed.
     RATE_FILE="${STATE_DIR}/last_${SESSION_KEY}_${EVENT_KIND_KEY}"
@@ -344,7 +352,18 @@ fi
 # ============================================================
 #  Create the pending marker
 # ============================================================
-rm -f "${STATE_DIR}/pending_${SESSION_KEY}_"* 2>/dev/null || true
+if [ "$EVENT_KIND" != "user_input" ] && compgen -G "${STATE_DIR}/awaiting_async_${SESSION_KEY}_*" >/dev/null 2>&1; then
+    # An async question is still waiting for its answer: this unrelated
+    # notification must not delete the live Reply-needed delivery pending.
+    while IFS= read -r pending_file; do
+        case "$pending_file" in
+            */"pending_${SESSION_KEY}_user_input_"*) continue ;;
+        esac
+        rm -f "$pending_file" 2>/dev/null || true
+    done < <(compgen -G "${STATE_DIR}/pending_${SESSION_KEY}_*" || true)
+else
+    rm -f "${STATE_DIR}/pending_${SESSION_KEY}_"* 2>/dev/null || true
+fi
 PENDING_FILE="${STATE_DIR}/pending_${SESSION_KEY}_${EVENT_KIND_KEY}_${TOOL_USE_KEY}_${NOW}_$$"
 echo "$EVENT_KIND" > "$PENDING_FILE"
 
@@ -384,6 +403,14 @@ QUEUE=$(build_queue)
 
 # Exit when no channel is available
 [ -z "$QUEUE" ] && exit 0
+
+# A valid async question starts durable, session-scoped waiting state once a
+# delivery is actually scheduled. It outlives the tool completion, unrelated
+# tool calls, Stop, and the delivery itself; UserPromptSubmit ends it.
+if [ "$EVENT_KIND" = "user_input" ] && [ "$TOOL_NAME" = "request_user_input_async" ]; then
+    rm -f "${STATE_DIR}/awaiting_async_${SESSION_KEY}_"* 2>/dev/null || true
+    printf '%s\t%s\n' "$NOW" "$TOOL_USE_KEY" > "${STATE_DIR}/awaiting_async_${SESSION_KEY}_${TOOL_USE_KEY}"
+fi
 
 # Run the pipeline in a background subshell
 (

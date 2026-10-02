@@ -55,6 +55,12 @@ case "$TOOL_NAME" in
             || true
         ;;
     request_user_input|ask|AskUserQuestion)
+        # A new synchronous question supersedes an outstanding async wait: without
+        # this a stale waiting marker could keep suppressing Stop after the
+        # synchronous question has been answered and cleared.
+        printf '%s' "$EVENT_DATA" \
+            | bash "${SCRIPT_DIR}/clear_pending.sh" --async-end \
+            || true
         QUESTION_COUNT=$(printf '%s' "$EVENT_DATA" | jq -r '
             if (.tool_input.questions? | type) == "array"
             then (.tool_input.questions | length)
@@ -68,8 +74,10 @@ case "$TOOL_NAME" in
             || true
         ;;
     *)
+        # Ordinary tool activity while an async question waits is not a user
+        # answer: the Reply-needed delivery pending survives any tool call.
         printf '%s' "$EVENT_DATA" \
-            | bash "${SCRIPT_DIR}/clear_pending.sh" \
+            | bash "${SCRIPT_DIR}/clear_pending.sh" --tool-activity \
             || true
         ;;
 esac

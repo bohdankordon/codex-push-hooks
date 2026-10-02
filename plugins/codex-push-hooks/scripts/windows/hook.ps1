@@ -43,7 +43,11 @@ function Invoke-NotifyFlow {
     $kindKey = ConvertTo-CphSafeKey -Value $content['EventKind']
     $toolKey = ConvertTo-CphSafeKey -Value $evt['ToolUseId']
     if ([string]::IsNullOrEmpty($evt['ToolUseId'])) { $toolKey = 'no-call' }
-    $pendingFile = New-CphPendingFile -StateDir $stateDir -SessionKey $sessionKey -KindKey $kindKey -ToolUseKey $toolKey -EventKind $content['EventKind']
+    # While an async question waits for its answer, a different notification kind
+    # must not delete the live Reply-needed delivery pending.
+    $preserveKind = ''
+    if ($content['EventKind'] -ne 'user_input' -and (Test-CphAsyncAwaiting -StateDir $stateDir -SessionKey $sessionKey)) { $preserveKind = 'user_input' }
+    $pendingFile = New-CphPendingFile -StateDir $stateDir -SessionKey $sessionKey -KindKey $kindKey -ToolUseKey $toolKey -EventKind $content['EventKind'] -PreserveKind $preserveKind
     if ([string]::IsNullOrEmpty($pendingFile)) { return }
     $queue = @(Build-CphSendQueue -ConfigPath $configPath -EventType $EventType)
     if ($null -eq $queue -or $queue.Count -eq 0) { return }
@@ -64,6 +68,12 @@ function Invoke-NotifyFlow {
         $worker = Join-Path $PSScriptRoot 'worker.ps1'
         $argLine = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $worker + '" -JobPath "' + $jobPath + '"'
         Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden
+        if ($content['EventKind'] -eq 'user_input' -and $evt['ToolName'] -eq 'request_user_input_async') {
+            # The delivery is scheduled, so the session is now durably waiting for
+            # the user's answer. This survives the tool completion, unrelated tool
+            # calls, Stop, and the delivery itself; UserPromptSubmit ends it.
+            [void](Set-CphAsyncAwaiting -StateDir $stateDir -SessionKey $sessionKey -ToolUseKey $evt['ToolUseId'])
+        }
     } catch {
         # The worker never started, so nothing will ever consume this delivery:
         # remove exactly the job file and pending marker this invocation created
@@ -74,12 +84,12 @@ function Invoke-NotifyFlow {
 }
 
 function Invoke-ClearFlow {
-    param([string]$RawInput, [string]$KindFilter)
+    param([string]$RawInput, [string]$KindFilter, [string]$PreserveKind = '')
     $evt = ConvertFrom-CphHookJson -RawJson $RawInput
     if ($null -eq $evt) { return }
     $stateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
     if ([string]::IsNullOrEmpty($stateDir)) { return }
-    Clear-CphPendingFromEvent -Event $evt -StateDir $stateDir -KindFilter $KindFilter
+    Clear-CphPendingFromEvent -Event $evt -StateDir $stateDir -KindFilter $KindFilter -PreserveKind $PreserveKind
 }
 
 try {
@@ -90,8 +100,36 @@ try {
         'notification' {
             Invoke-NotifyFlow -RawInput $raw -EventType 'notification' -EventKind $KindArg
         }
-        'stop' { Invoke-NotifyFlow -RawInput $raw -EventType 'stop' -EventKind 'stop' }
-        'clear' { Invoke-ClearFlow -RawInput $raw -KindFilter $KindArg }
+        'stop' {
+            $stopEvent = ConvertFrom-CphHookJson -RawJson $raw
+            if ($null -ne $stopEvent) {
+                $stopStateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
+                if (-not [string]::IsNullOrEmpty($stopStateDir)) {
+                    $stopSessionKey = ConvertTo-CphSafeKey -Value (Get-CphSessionScope -Event $stopEvent)
+                    if (Test-CphAsyncAwaiting -StateDir $stopStateDir -SessionKey $stopSessionKey) {
+                        # An async question is on screen and unanswered: this Stop is not
+                        # task completion (the runtime ends the turn while the question
+                        # waits), so skip the Stop notification entirely -- no pending,
+                        # no job, and no Stop rate-limit state.
+                        break
+                    }
+                }
+            }
+            Invoke-NotifyFlow -RawInput $raw -EventType 'stop' -EventKind 'stop'
+        }
+        'clear' {
+            $clearEvent = ConvertFrom-CphHookJson -RawJson $raw
+            if ($null -ne $clearEvent -and $clearEvent['HookEvent'] -eq 'UserPromptSubmit') {
+                $clearStateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
+                if (-not [string]::IsNullOrEmpty($clearStateDir)) {
+                    $clearSessionKey = ConvertTo-CphSafeKey -Value (Get-CphSessionScope -Event $clearEvent)
+                    # The answer to an async question arrives as user input, so
+                    # UserPromptSubmit is the authoritative end of async waiting.
+                    Clear-CphAsyncAwaiting -StateDir $clearStateDir -SessionKey $clearSessionKey
+                }
+            }
+            Invoke-ClearFlow -RawInput $raw -KindFilter $KindArg
+        }
         'pre-tool-use' {
             $pe = ConvertFrom-CphHookJson -RawJson $raw
             if ($null -eq $pe) { break }
@@ -113,11 +151,29 @@ try {
                     # the ordinary-tool clear behavior).
                     $notify = $false
                 }
+                if ($tn -ne 'request_user_input_async') {
+                    # A new synchronous question supersedes an outstanding async wait;
+                    # without this a stale marker could keep suppressing Stop after
+                    # the synchronous question has been answered and cleared.
+                    $syncStateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
+                    if (-not [string]::IsNullOrEmpty($syncStateDir)) {
+                        $syncSessionKey = ConvertTo-CphSafeKey -Value (Get-CphSessionScope -Event $pe)
+                        Clear-CphAsyncAwaiting -StateDir $syncStateDir -SessionKey $syncSessionKey
+                    }
+                }
                 if ($notify) {
                     Invoke-NotifyFlow -RawInput $raw -EventType 'notification' -EventKind 'user_input'
                 }
             } else {
-                Invoke-ClearFlow -RawInput $raw -KindFilter ''
+                # Ordinary tool activity while an async question waits is not a user
+                # answer: the Reply-needed delivery pending must survive any tool.
+                $preserve = ''
+                $toolStateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
+                if (-not [string]::IsNullOrEmpty($toolStateDir)) {
+                    $toolSessionKey = ConvertTo-CphSafeKey -Value (Get-CphSessionScope -Event $pe)
+                    if (Test-CphAsyncAwaiting -StateDir $toolStateDir -SessionKey $toolSessionKey) { $preserve = 'user_input' }
+                }
+                Invoke-ClearFlow -RawInput $raw -KindFilter '' -PreserveKind $preserve
             }
         }
         default { }

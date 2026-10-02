@@ -124,6 +124,23 @@ function Assert-InvalidAsyncPayload {
 }
 
 # Decodes the quote-free -EncodedCommand bootstrap carried by a
+function New-AsyncCaseEnv {
+    # Configured notifier with a long delay and a capture dir: a real queue
+    # exists (so async waiting state is created) and no real send can occur.
+    param([string]$Dir)
+    $sd = Join-Path $Dir 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
+    $cap = Join-Path $Dir 'cap'; New-Item -ItemType Directory -Force -Path $cap | Out-Null
+    $cfg = Write-TestConfig -Dir $Dir -Body '{"channels":{"telegram":{"enabled":true,"delay":60,"bot_token":"F","chat_id":"0"}},"rate_limit":0}'
+    return @{ StateDir = $sd; CaptureDir = $cap; Config = $cfg; Extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd; 'CC_NOTIFY_CONFIG' = $cfg; 'CC_NOTIFY_CAPTURE_DIR' = $cap } }
+}
+
+function Add-AsyncAwaitingFixture {
+    param([string]$StateDir, [string]$SessionKey, [string]$ToolUseKey)
+    [void](Set-CphAsyncAwaiting -StateDir $StateDir -SessionKey $SessionKey -ToolUseKey $ToolUseKey)
+    [System.IO.File]::WriteAllText((Join-Path $StateDir ('pending_' + $SessionKey + '_user_input_' + $ToolUseKey + '_1_1')), 'user_input', [System.Text.Encoding]::UTF8)
+}
+
+# Decodes the quote-free -EncodedCommand bootstrap carried by a
 # commandWindows entry, so tests can assert what the opaque payload does.
 function Get-DecodedHookCommand {
     param([string]$Cmd)
@@ -910,6 +927,109 @@ Invoke-Case '51-async-valid-explicit-null-options' {
     $code = Invoke-AsyncPreToolUse -Json $json -Dir $d
     Assert-True ($code -eq 0) 'explicit null options exit 0'
     Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $d 'state') -Filter 'pending_async-null-session_user_input_*').Count -eq 1) 'explicit null options create the pending marker'
+}
+Invoke-Case '52-async-ordinary-tool-keeps-awaiting' {
+    # Sequence: valid async question, then an unrelated tool call (the real
+    # Stage 3B lifecycle used clock.sleep). Ordinary tool activity is not a user
+    # answer, so the Reply-needed delivery pending must survive it.
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    $async = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"call-52","session_id":"s52","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Which environment should I use?","options":["Staging","Production"]}]}}'
+    $code = Get-HookExit -Json $async -Action 'pre-tool-use' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'async question exits 0'
+    $pend = @(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s52_user_input_*')
+    Assert-True ($pend.Count -eq 1) 'async question creates the delivery pending'
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's52') 'async question starts awaiting state'
+    [System.IO.File]::WriteAllText((Join-Path $env.StateDir 'pending_s52_notification_x_1_1'), 'notification', [System.Text.Encoding]::UTF8)
+    $code2 = Get-HookExit -Json '{"hook_event_name":"PreToolUse","tool_name":"sleep","session_id":"s52","tool_input":{"duration_ms":600000}}' -Action 'pre-tool-use' -ExtraEnv $env.Extra
+    Assert-True ($code2 -eq 0) 'ordinary tool exits 0'
+    Assert-True (Test-Path -LiteralPath $pend[0].FullName) 'ordinary tool activity keeps the async user_input pending'
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's52') 'ordinary tool activity keeps awaiting state'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $env.StateDir 'pending_s52_notification_x_1_1'))) 'ordinary tool activity still clears other pending kinds'
+}
+Invoke-Case '53-async-stop-suppressed-while-awaiting' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's53' -ToolUseKey 'call-53'
+    $code = Get-HookExit -Json '{"hook_event_name":"Stop","session_id":"s53"}' -Action 'stop' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'suppressed stop exits 0'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s53_stop_*' -ErrorAction SilentlyContinue).Count -eq 0) 'no stop pending while awaiting'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'job_*.json' -ErrorAction SilentlyContinue).Count -eq 0) 'no stop job while awaiting'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $env.StateDir 'last_s53_stop'))) 'no stop rate marker while awaiting'
+    Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'pending_s53_user_input_call-53_1_1')) 'reply-needed pending survives Stop'
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's53') 'awaiting state survives Stop'
+}
+Invoke-Case '54-async-userpromptsubmit-clears-and-stop-recovers' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's54' -ToolUseKey 'call-54'
+    $code = Get-HookExit -Json '{"hook_event_name":"UserPromptSubmit","message":"Staging","session_id":"s54"}' -Action 'clear' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'UserPromptSubmit exits 0'
+    Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's54')) 'UserPromptSubmit ends awaiting state'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s54_user_input_*' -ErrorAction SilentlyContinue).Count -eq 0) 'UserPromptSubmit clears the delivery pending'
+    $code2 = Get-HookExit -Json '{"hook_event_name":"Stop","session_id":"s54"}' -Action 'stop' -ExtraEnv $env.Extra
+    Assert-True ($code2 -eq 0) 'later stop exits 0'
+    Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'last_s54_stop')) 'later Stop follows the normal path again'
+}
+Invoke-Case '55-async-delivery-completion-is-not-the-answer' {
+    # The worker removes the delivery pending after sending, but the session is
+    # still waiting for the answer: awaiting state must outlive it.
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's55' -ToolUseKey 'call-55'
+    Remove-Item -LiteralPath (Join-Path $env.StateDir 'pending_s55_user_input_call-55_1_1') -Force
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's55') 'awaiting survives the delivery completion'
+    [void](Get-HookExit -Json '{"hook_event_name":"Stop","session_id":"s55"}' -Action 'stop' -ExtraEnv $env.Extra)
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $env.StateDir 'last_s55_stop'))) 'Stop stays suppressed after the delivery'
+    [void](Get-HookExit -Json '{"hook_event_name":"UserPromptSubmit","message":"Staging","session_id":"s55"}' -Action 'clear' -ExtraEnv $env.Extra)
+    Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's55')) 'the real answer ends awaiting state'
+}
+Invoke-Case '56-async-other-notification-coexists' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's56' -ToolUseKey 'call-56'
+    $code = Get-HookExit -Json '{"hook_event_name":"PermissionRequest","prompt":"allow?","session_id":"s56","cwd":"C:/w/project"}' -Action 'notification' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'PermissionRequest exits 0'
+    Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'pending_s56_user_input_call-56_1_1')) 'async user_input pending preserved'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s56_notification_*').Count -eq 1) 'the other notification gets its own pending'
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's56') 'awaiting preserved'
+}
+Invoke-Case '57-async-second-question-supersedes' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's57' -ToolUseKey 'call-q1'
+    $async2 = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"call-q2","session_id":"s57","cwd":"C:/w/project","tool_input":{"questions":[{"title":"Second question?","options":["A","B"]}]}}'
+    $code = Get-HookExit -Json $async2 -Action 'pre-tool-use' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'second async question exits 0'
+    $awaiting = @(Get-ChildItem -LiteralPath $env.StateDir -Filter 'awaiting_async_s57_*')
+    Assert-True ($awaiting.Count -eq 1) 'exactly one canonical awaiting marker'
+    Assert-True ($awaiting[0].Name -like '*call-q2*') 'the newer question is canonical'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s57_user_input_*').Count -eq 1) 'exactly one user_input delivery pending'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s57_user_input_*')[0].Name -like '*call-q2*') 'the newer delivery is active'
+}
+Invoke-Case '58-async-invalid-creates-no-awaiting' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    [System.IO.File]::WriteAllText((Join-Path $env.StateDir 'pending_s58_user_input_old_1_1'), 'user_input', [System.Text.Encoding]::UTF8)
+    $invalid = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input_async","tool_use_id":"call-bad","session_id":"s58","tool_input":{"questions":[{"title":"Which?","options":[{"label":"A"}]}]}}'
+    $code = Get-HookExit -Json $invalid -Action 'pre-tool-use' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'invalid async exits 0'
+    Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's58')) 'invalid async creates no awaiting state'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s58_user_input_call-bad*' -ErrorAction SilentlyContinue).Count -eq 0) 'invalid async creates no pending'
+    Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'pending_s58_user_input_old_1_1')) 'invalid async clears nothing'
+}
+Invoke-Case '59-sync-question-keeps-classic-lifecycle' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    $sync = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_use_id":"call-sync","session_id":"s59","cwd":"C:/w/project","tool_input":{"questions":[{"header":"Scope","question":"What does this fix cover?","options":[{"label":"Full"}]}]}}'
+    [void](Get-HookExit -Json $sync -Action 'pre-tool-use' -ExtraEnv $env.Extra)
+    Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's59')) 'sync question creates no awaiting state'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s59_user_input_*').Count -eq 1) 'sync question creates its delivery pending'
+    [void](Get-HookExit -Json '{"hook_event_name":"PostToolUse","tool_name":"request_user_input","tool_use_id":"call-sync","session_id":"s59"}' -Action 'clear' -Kind 'user_input' -ExtraEnv $env.Extra)
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s59_user_input_*' -ErrorAction SilentlyContinue).Count -eq 0) 'sync PostToolUse still clears'
+}
+Invoke-Case '60-sync-question-supersedes-async-wait' {
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's60' -ToolUseKey 'call-async60'
+    $sync = '{"hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_use_id":"call-sync60","session_id":"s60","cwd":"C:/w/project","tool_input":{"questions":[{"header":"H","question":"Q?","options":[{"label":"A"}]}]}}'
+    [void](Get-HookExit -Json $sync -Action 'pre-tool-use' -ExtraEnv $env.Extra)
+    Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's60')) 'a sync question supersedes the async wait'
+    [void](Get-HookExit -Json '{"hook_event_name":"PostToolUse","tool_name":"request_user_input","tool_use_id":"call-sync60","session_id":"s60"}' -Action 'clear' -Kind 'user_input' -ExtraEnv $env.Extra)
+    Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's60')) 'no stale awaiting marker after the sync transition'
+    [void](Get-HookExit -Json '{"hook_event_name":"Stop","session_id":"s60"}' -Action 'stop' -ExtraEnv $env.Extra)
+    Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'last_s60_stop')) 'Stop is not suppressed after the sync transition'
 }
 Write-Output ''
 Write-Output ('PSVersion=' + [string]$PSVersionTable.PSVersion)
