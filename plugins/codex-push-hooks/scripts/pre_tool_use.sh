@@ -63,13 +63,21 @@ case "$TOOL_NAME" in
         ' 2>/dev/null || echo "0")
 
         [ "$QUESTION_COUNT" -gt 0 ] 2>/dev/null || exit 0
+        # A new synchronous question supersedes an outstanding async wait, but only
+        # when it actually notifies: a recognized question tool with no questions is
+        # a quiet no-op that must keep the async waiting state and its reply pending.
+        printf '%s' "$EVENT_DATA" \
+            | bash "${SCRIPT_DIR}/clear_pending.sh" --async-end \
+            || true
         printf '%s' "$EVENT_DATA" \
             | bash "${SCRIPT_DIR}/notify.sh" notification user_input \
             || true
         ;;
     *)
+        # Ordinary tool activity while an async question waits is not a user
+        # answer: the Reply-needed delivery pending survives any tool call.
         printf '%s' "$EVENT_DATA" \
-            | bash "${SCRIPT_DIR}/clear_pending.sh" \
+            | bash "${SCRIPT_DIR}/clear_pending.sh" --tool-activity \
             || true
         ;;
 esac

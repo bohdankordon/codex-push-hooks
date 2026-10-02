@@ -116,6 +116,7 @@ the installer behavior.
 - Enabling hooks requires `[features]` with `hooks = true` in `~/.codex/config.toml` (`codex_hooks = true` is the deprecated compatibility alias and is still detected)
 - Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)
 - `request_user_input_async` is a distinct async question tool: PreToolUse runs before the handler validates its arguments, so the dispatcher validates the current async contract before notifying, and its completion is never wired to the PostToolUse clear hook (the later UserPromptSubmit clears the pending state)
+- Async waiting is durable, session-scoped state (`awaiting_async_<session>_<tool_use_id>`), separate from the delivery `pending_*` marker: it starts only when a valid async notification is actually queued, survives tool completion, unrelated tool calls and Stop (which is skipped entirely while it is active), and ends on UserPromptSubmit; a newer question supersedes it and unrelated notification kinds must not delete the live reply pending
 
 **Reasonix**:
 - Manifest: `reasonix-plugin.json` (`reasonix.io/plugin/v2`, parsed strictly: unknown fields such as author/license/keywords are not allowed)

@@ -558,20 +558,22 @@ function Test-CphNotifyFilter {
 }
 
 function Clear-CphPending {
-    param([string]$StateDir, [string]$SessionKey, [string]$KindKey = '')
+    param([string]$StateDir, [string]$SessionKey, [string]$KindKey = '', [string]$PreserveKind = '')
     if ([string]::IsNullOrEmpty($StateDir)) { return }
     if ([string]::IsNullOrEmpty($SessionKey)) { return }
     try {
         if ([string]::IsNullOrEmpty($KindKey)) { $pat = ('pending_' + $SessionKey + '_*') }
         else { $pat = ('pending_' + $SessionKey + '_' + $KindKey + '_*') }
-        Get-ChildItem -LiteralPath $StateDir -Filter $pat -File -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } catch { }
-        }
+        $preservePat = ''
+        if (-not [string]::IsNullOrEmpty($PreserveKind)) { $preservePat = ('pending_' + $SessionKey + '_' + $PreserveKind + '_*') }
+        Get-ChildItem -LiteralPath $StateDir -Filter $pat -File -ErrorAction SilentlyContinue |
+            Where-Object { $preservePat -eq '' -or $_.Name -notlike $preservePat } |
+            ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } catch { } }
     } catch { }
 }
 
 function Clear-CphPendingFromEvent {
-    param([hashtable]$Event, [string]$StateDir, [string]$KindFilter = '')
+    param([hashtable]$Event, [string]$StateDir, [string]$KindFilter = '', [string]$PreserveKind = '')
     $scope = Get-CphSessionScope -Event $Event
     $skey = ConvertTo-CphSafeKey -Value $scope
     if ($Event['HookEvent'] -eq 'UserPromptSubmit') {
@@ -594,13 +596,55 @@ function Clear-CphPendingFromEvent {
     }
     $kk = ''
     if (-not [string]::IsNullOrEmpty($KindFilter)) { $kk = ConvertTo-CphSafeKey -Value $KindFilter }
-    Clear-CphPending -StateDir $StateDir -SessionKey $skey -KindKey $kk
+    Clear-CphPending -StateDir $StateDir -SessionKey $skey -KindKey $kk -PreserveKind $PreserveKind
 }
 
-function New-CphPendingFile {
-    param([string]$StateDir, [string]$SessionKey, [string]$KindKey, [string]$ToolUseKey, [string]$EventKind)
+#region Async waiting state
+
+# Durable, session-scoped state that marks "an async question is on screen and
+# the user has not answered yet". It is separate from the delivery pending
+# marker because the worker removes that marker after a (successful or failed)
+# delivery, while the session is still waiting for the user's answer. The state
+# ends authoritatively on UserPromptSubmit for the same session.
+function Clear-CphAsyncAwaiting {
+    param([string]$StateDir, [string]$SessionKey)
+    if ([string]::IsNullOrEmpty($StateDir) -or [string]::IsNullOrEmpty($SessionKey)) { return }
     try {
-        Clear-CphPending -StateDir $StateDir -SessionKey $SessionKey
+        Get-ChildItem -LiteralPath $StateDir -Filter ('awaiting_async_' + $SessionKey + '_*') -File -ErrorAction SilentlyContinue |
+            ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } catch { } }
+    } catch { }
+}
+
+function Set-CphAsyncAwaiting {
+    param([string]$StateDir, [string]$SessionKey, [string]$ToolUseKey = '')
+    if ([string]::IsNullOrEmpty($StateDir) -or [string]::IsNullOrEmpty($SessionKey)) { return '' }
+    try {
+        # Setting a new wait for the session replaces any older marker, so the
+        # current question stays canonical.
+        Clear-CphAsyncAwaiting -StateDir $StateDir -SessionKey $SessionKey
+        $key = ConvertTo-CphSafeKey -Value $ToolUseKey
+        $full = Join-Path $StateDir ('awaiting_async_' + $SessionKey + '_' + $key)
+        $stamp = '{0}	{1}' -f [int][System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds(), $key
+        [System.IO.File]::WriteAllText($full, $stamp, (New-Object System.Text.UTF8Encoding($false)))
+        return $full
+    } catch { return '' }
+}
+
+function Test-CphAsyncAwaiting {
+    param([string]$StateDir, [string]$SessionKey)
+    if ([string]::IsNullOrEmpty($StateDir) -or [string]::IsNullOrEmpty($SessionKey)) { return $false }
+    try {
+        $hit = Get-ChildItem -LiteralPath $StateDir -Filter ('awaiting_async_' + $SessionKey + '_*') -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        return [bool]$hit
+    } catch { return $false }
+}
+
+#endregion
+
+function New-CphPendingFile {
+    param([string]$StateDir, [string]$SessionKey, [string]$KindKey, [string]$ToolUseKey, [string]$EventKind, [string]$PreserveKind = '')
+    try {
+        Clear-CphPending -StateDir $StateDir -SessionKey $SessionKey -PreserveKind $PreserveKind
         $now = [int][System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $name = ('pending_' + $SessionKey + '_' + $KindKey + '_' + $ToolUseKey + '_' + $now + '_' + $PID)
         $full = Join-Path $StateDir $name
@@ -1012,6 +1056,7 @@ Export-ModuleMember -Function @(
     'Get-CphShortSessionId', 'Get-CphProjectName', 'Get-CphSessionScope',
     'Get-CphNotificationContent', 'Get-CphRateLimit', 'Test-CphNotifyFilter',
     'Clear-CphPending', 'Clear-CphPendingFromEvent', 'New-CphPendingFile',
+    'Clear-CphAsyncAwaiting', 'Set-CphAsyncAwaiting', 'Test-CphAsyncAwaiting',
     'Build-CphSendQueue', 'Test-CphHasEventJson', 'Get-CphLongNote',
     'Get-CphLongMarkdown', 'Get-CphColorDecimal', 'Get-CphChannelConfig',
     'New-CphChannelRequest', 'Invoke-CphChannelSend', 'New-CphJobFile'
