@@ -50,8 +50,11 @@ Each channel has its own configurable delay. Enable only the channels you need; 
 ```
 Claude Code / Codex CLI events
     │
-    ├─ Codex request_user_input → PreToolUse dispatcher → waiting-for-input notification
+    ├─ Codex request_user_input (sync) → PreToolUse dispatcher → waiting-for-input notification
     │                                      └─ PostToolUse → targeted cancel
+    ├─ Codex request_user_input_async → PreToolUse dispatcher (payload validated against the handler contract)
+    │                                      → waiting-for-input notification
+    │                                      └─ later UserPromptSubmit → cancel
     ▼
 notify.sh ── clear stale pending for this session → create a new pending marker
     │
@@ -101,7 +104,7 @@ Enable hooks (required; Codex disables them by default) by adding this to `~/.co
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 Then restart Codex, or use the plugin in a new session. After installing or upgrading, open `/hooks` to review and trust the new or changed hook definitions, otherwise Codex skips them.
@@ -134,7 +137,7 @@ bash install.sh dsh              # install into dsh (DeepSeek Harness) directly
 The installer walks you through channel selection and credential entry, then generates the configuration for you:
 
 - **Claude branch**: writes `~/.claude/hooks/notify.json` and merges hooks into `~/.claude/settings.json`
-- **Codex branch**: writes `~/.codex/codex-push-hooks/notify.json`, merges hooks into `~/.codex/hooks.json`, and reminds you to enable `codex_hooks`
+- **Codex branch**: writes `~/.codex/codex-push-hooks/notify.json`, merges hooks into `~/.codex/hooks.json`, and reminds you to enable `hooks`
 - **Reasonix branch**: writes `~/.reasonix/codex-push-hooks/notify.json` and registers this repository as a plugin with `reasonix plugin install --link` (`reasonix-plugin.json` declares 5 hooks)
 - **dsh branch**: writes `~/.dsh/codex-push-hooks/notify.json`, symlinks the plugin package into `~/node_modules/@dsh-local/codex-push-hooks`, and appends an insert entry to `~/.dsh/cordis.patch.yml` (dsh hot-loads it, no restart required)
 
@@ -243,7 +246,7 @@ bash test_notify.sh list         # show enabled channels and their delays
 bash test_notify.sh hook         # simulate the Claude Code hook flow
 bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event
 bash test_notify.sh codex-plugin-hooks  # verify Codex plugin hook path resolution
-bash test_notify.sh user-input   # verify the request_user_input dispatcher and templates
+bash test_notify.sh user-input   # verify the request_user_input / request_user_input_async dispatcher and templates
 bash test_notify.sh state        # verify multi-session state isolation and exact deduplication
 bash test_notify.sh render       # verify the notification content templates
 bash test_notify.sh agents       # verify Reasonix / dsh agent detection and event fields
@@ -404,10 +407,12 @@ The complete template is in [`config/notify.example.json`](config/notify.example
 | PermissionRequest | Codex asks for authorization | Tiered push |
 | Stop | Codex finishes a turn | Tiered push |
 | UserPromptSubmit | User sends a message | Clear pending |
-| PreToolUse | Before a `request_user_input` call | Send a "reply needed" notification; other tools clear the current session's pending markers |
-| PostToolUse | After `request_user_input` receives an answer | Cancel only the input notifications for the current session that have not been sent yet |
+| PreToolUse | Before a `request_user_input` / `request_user_input_async` call | Send a "reply needed" notification; other tools clear the current session's pending markers |
+| PostToolUse | After the synchronous `request_user_input` receives an answer | Cancel only the input notifications for the current session that have not been sent yet |
 
-> Codex has no dedicated waiting-for-input event. The plugin detects the waiting state precisely through `PreToolUse(request_user_input)` and reuses the `notification` channel configuration.
+> Codex has no dedicated waiting-for-input event. The plugin detects the waiting state precisely through `PreToolUse(request_user_input)` / `PreToolUse(request_user_input_async)` and reuses the `notification` channel configuration.
+
+> Current Codex exposes two question tools: the synchronous `request_user_input` (header/question plus label options) and the asynchronous `request_user_input_async` (a single `title` plus string options). The async tool returns as soon as the question is presented, so its immediate completion is not the user's answer: the pending notification stays until the reply arrives later as a new message and `UserPromptSubmit` clears it. Codex also validates the async tool's arguments *after* `PreToolUse` runs, so the dispatcher mirrors the current async contract (a question array whose every entry has a non-blank `title` and, when present, a non-empty array of non-blank string options) and stays quiet for a payload the handler will reject: no notification is created for a question the user never sees.
 
 > On Windows the same five hooks run through `commandWindows` PowerShell entry points (`scripts/windows/hook.ps1`) with identical behavior; see [Native Windows Codex runtime](#native-windows-codex-runtime-no-bashjqwsl).
 
@@ -447,7 +452,7 @@ Notifications are first normalized into a shared set of fields, then rendered se
 |----------|-------|
 | Claude Code Notification idle_prompt | `Claude Code · Awaiting response ⏳` |
 | Codex PermissionRequest | `Codex · Approval needed 🔔` |
-| Codex request_user_input | `Codex · Reply needed 🔔` |
+| Codex request_user_input / request_user_input_async | `Codex · Reply needed 🔔` |
 | Reasonix Notification (waiting for approval) | `Reasonix · Approval needed 🔔` |
 | Reasonix `ask` question | `Reasonix · Reply needed 🔔` |
 | dsh `approval/request` | `dsh · Approval needed 🔔` |
@@ -493,7 +498,7 @@ Fallback notifications for waiting-for-input also show the number of questions, 
 | Subagent filtering | Skip when `agent_id` is non-empty |
 | Stop-loop protection | Skip when `stop_hook_active=true` |
 | `/exit` silence | Suppress only subsequent Stop events for the current session |
-| Rate limiting | Throttled per session and event category; `request_user_input` deduplicates precisely by `tool_use_id` |
+| Rate limiting | Throttled per session and event category; `request_user_input` / `request_user_input_async` deduplicate precisely by `tool_use_id` |
 
 ## File structure
 
@@ -561,7 +566,7 @@ rm -rf ~/.claude/hooks/scripts ~/.claude/hooks/notify.json ~/.claude/hooks/state
 **Standalone install (Codex)**:
 ```bash
 rm -rf ~/.codex/codex-push-hooks
-# edit ~/.codex/hooks.json manually to remove the related events; optionally turn off codex_hooks
+# edit ~/.codex/hooks.json manually to remove the related events; optionally turn off hooks
 ```
 
 **Standalone install (Reasonix)**:

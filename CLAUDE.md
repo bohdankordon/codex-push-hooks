@@ -14,7 +14,7 @@ Tiered push notifications for Claude Code, Codex CLI, Reasonix, and dsh (DeepSee
 plugins/codex-push-hooks/    # the real plugin root (the scripts/hooks/config entries at the repository root are symlinks)
 ├── scripts/notify.sh       # main dispatcher: event filtering, delayed queueing, channel fan-out (compatible with all 4 agents' fields)
 ├── scripts/clear_pending.sh# clear pending notifications (triggered on user interaction)
-├── scripts/pre_tool_use.sh # question-tool dispatcher (request_user_input / ask / AskUserQuestion)
+├── scripts/pre_tool_use.sh # question-tool dispatcher (request_user_input / request_user_input_async / ask / AskUserQuestion)
 ├── scripts/channels/*.sh   # 11 channel implementations
 ├── scripts/windows/        # native Windows runtime: hook.ps1 (entry), worker.ps1 (detached delivery), CodexPushHooks.psm1 (shared logic; no Bash/jq/curl/WSL)
 ├── hooks/hooks.json        # Claude Code hook event definitions
@@ -113,8 +113,9 @@ the installer behavior.
 - Codex hook commands run from the session `cwd`, so `./scripts/...` does not work; in plugin mode the scripts must be located from `~/.codex/plugins/cache/*/codex-push-hooks/*/`
 - `commandWindows` entries must stay quote-free: the Codex Windows runner passes handlers through `cmd.exe /c "<command line>"`, so an embedded quoted `-File "..."` segment is unsafe. Each entry is one `powershell.exe ... -EncodedCommand <UTF-16LE base64>` bootstrap that resolves the plugin root from `$env:PLUGIN_ROOT` and invokes `scripts\windows\hook.ps1` without reading stdin
 - Marketplace: `.agents/plugins/marketplace.json`; the `policy` block requires `installation`/`authentication`/`category`
-- Enabling hooks requires `[features]` with `codex_hooks = true` in `~/.codex/config.toml`
+- Enabling hooks requires `[features]` with `hooks = true` in `~/.codex/config.toml` (`codex_hooks = true` is the deprecated compatibility alias and is still detected)
 - Field differences: Codex uses `prompt` where Claude uses `message` (the scripts already fall back between them), and Codex has no Notification event (PermissionRequest takes its place)
+- `request_user_input_async` is a distinct async question tool: PreToolUse runs before the handler validates its arguments, so the dispatcher validates the current async contract before notifying, and its completion is never wired to the PostToolUse clear hook (the later UserPromptSubmit clears the pending state)
 
 **Reasonix**:
 - Manifest: `reasonix-plugin.json` (`reasonix.io/plugin/v2`, parsed strictly: unknown fields such as author/license/keywords are not allowed)

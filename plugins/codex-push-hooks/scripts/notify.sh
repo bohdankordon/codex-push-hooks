@@ -119,11 +119,34 @@ QUESTION_COUNT=$(printf '%s' "$EVENT_DATA" | jq -r '
     else 0
     end
 ' 2>/dev/null || echo "0")
-QUESTION_HEADER=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_input.questions[0].header // empty' 2>/dev/null || echo "")
-QUESTION_TEXT=$(printf '%s' "$EVENT_DATA" | jq -r '.tool_input.questions[0].question // empty' 2>/dev/null || echo "")
+# Question fields: the synchronous Codex schema carries header + question, the
+# asynchronous request_user_input_async schema carries a single title, and the
+# Reasonix/dsh fixtures use the header + question shape.
+QUESTION_HEADER=$(printf '%s' "$EVENT_DATA" | jq -r '
+    (.tool_input.questions[0]? // {}) as $q
+    | (if ($q | type) == "object" then $q else {} end) as $o
+    | ($o.header? // "") as $h
+    | ($o.title? // "") as $t
+    | if ($h | type) == "string" and ($h | length) > 0 then $h
+      elif ($t | type) == "string" and ($t | length) > 0 then $t
+      else "" end
+' 2>/dev/null || echo "")
+QUESTION_TEXT=$(printf '%s' "$EVENT_DATA" | jq -r '
+    (.tool_input.questions[0]? // {}) as $q
+    | (if ($q | type) == "object" then $q else {} end) as $o
+    | ($o.question? // "") as $qt
+    | ($o.title? // "") as $t
+    | if ($qt | type) == "string" and ($qt | length) > 0 then $qt
+      elif ($t | type) == "string" and ($t | length) > 0 then $t
+      else "" end
+' 2>/dev/null || echo "")
+# Options: {"label":"A"} (synchronous) and "A" (asynchronous) both yield "A".
 OPTION_LABELS=$(printf '%s' "$EVENT_DATA" | jq -c '
-    [(.tool_input.questions[0].options // [])[]?
-        | .label?
+    [(.tool_input.questions[0]? // {}) as $q
+        | (if ($q | type) == "object" then ($q.options? // []) else [] end)[]?
+        | if type == "string" then .
+          elif type == "object" then (.label? // empty)
+          else empty end
         | select(type == "string" and length > 0)]
 ' 2>/dev/null || echo '[]')
 [[ "$QUESTION_COUNT" =~ ^[0-9]+$ ]] || QUESTION_COUNT=0
@@ -162,7 +185,7 @@ if [ "${CC_NOTIFY_RENDER_ONLY:-}" != "1" ]; then
     fi
 
     # Deduplication: state is isolated per session + event kind.
-    # request_user_input deduplicates precisely by tool_use_id so a new question right after it is not swallowed.
+    # request_user_input / request_user_input_async deduplicate precisely by tool_use_id so a new question right after one is not swallowed.
     RATE_FILE="${STATE_DIR}/last_${SESSION_KEY}_${EVENT_KIND_KEY}"
     if [ -f "$RATE_FILE" ]; then
         LAST=0

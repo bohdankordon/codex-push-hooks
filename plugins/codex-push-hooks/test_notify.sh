@@ -9,7 +9,7 @@
 #   bash test_notify.sh codex        # simulate a Codex CLI PermissionRequest event (prompt field)
 #   bash test_notify.sh list         # list the enabled channels
 #   bash test_notify.sh codex-plugin-hooks  # verify Codex plugin hooks do not depend on the session cwd
-#   bash test_notify.sh user-input    # verify the request_user_input dispatcher and templates
+#   bash test_notify.sh user-input    # verify the request_user_input / request_user_input_async dispatcher and templates
 #   bash test_notify.sh state         # verify session-scoped state, deduplication, and clearing
 #   bash test_notify.sh render        # verify the notification title and body templates
 #   bash test_notify.sh agents        # verify Reasonix / dsh agent detection and event fields
@@ -305,6 +305,7 @@ test_user_input_flow() {
         echo -e "${YELLOW}[request_user_input]${NC} verifying the dispatcher, templates, and quiet degradation..."
 
         local tmp_base tmp_root state_dir out markdown fallback_out empty_out invalid_out no_jq_out
+        local async_out async_empty_out async_free_out async_null_out async_config pre_matcher post_matcher
         local capture_file feishu_payload discord_payload
         local bash_bin minimal_bin
         tmp_base="${TMPDIR:-/tmp}"
@@ -380,6 +381,88 @@ test_user_input_flow() {
         if [ "$(printf '%s' "$fallback_out" | jq -r '.summary_short')" != "Choose the fix scope" ] ||
            [ "$(printf '%s' "$fallback_out" | jq -r '.session_short')" != "turn-onl" ]; then
             echo -e "${RED}[request_user_input]${NC} question/turn_id fallback is wrong: $fallback_out"
+            return 1
+        fi
+
+        async_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-async-input","turn_id":"turn-async","tool_name":"request_user_input_async","tool_use_id":"call-async-input","tool_input":{"questions":[{"title":"Which environment should I use?","options":["Staging","Production"]}]},"cwd":"/tmp/demo-project","model":"gpt-5.5"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ "$(printf '%s' "$async_out" | jq -r '.title')" != "Codex · Reply needed 🔔" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.event_kind')" != "user_input" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.question_count')" != "1" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.summary_short')" != "Which environment should I use?" ] ||
+           [ "$(printf '%s' "$async_out" | jq -r '.option_labels | join(",")')" != "Staging,Production" ]; then
+            echo -e "${RED}[request_user_input_async]${NC} the async question fixture is rendered wrong: $async_out"
+            return 1
+        fi
+
+        touch "${state_dir}/pending_async-empty_user_input_call-async-empty_1_1"
+        async_empty_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"async-empty","tool_name":"request_user_input_async","tool_use_id":"call-async-empty","tool_input":{"questions":[]}}' \
+            | CC_NOTIFY_STATE_DIR="$state_dir" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ -n "$async_empty_out" ] ||
+           ! compgen -G "${state_dir}/pending_async-empty_*" >/dev/null; then
+            echo -e "${RED}[request_user_input_async]${NC} an empty async question list must stay quiet and keep pending state"
+            return 1
+        fi
+
+        async_free_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"async-free","turn_id":"turn-async-free","tool_name":"request_user_input_async","tool_use_id":"call-async-free","tool_input":{"questions":[{"title":"Describe the environment"}]},"cwd":"/tmp/demo-project"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ "$(printf '%s' "$async_free_out" | jq -r '.event_kind')" != "user_input" ] ||
+           [ "$(printf '%s' "$async_free_out" | jq -r '.question_count')" != "1" ] ||
+           [ "$(printf '%s' "$async_free_out" | jq -r '.option_labels | length')" != "0" ] ||
+           [ "$(printf '%s' "$async_free_out" | jq -r '.summary_short')" != "Describe the environment" ]; then
+            echo -e "${RED}[request_user_input_async]${NC} the free-text async question is rendered wrong: $async_free_out"
+            return 1
+        fi
+
+        # The runtime models options as Option<Vec<String>>, so an explicit null
+        # is valid and behaves like options omitted.
+        async_null_out=$(printf '%s' '{"hook_event_name":"PreToolUse","session_id":"async-null","turn_id":"turn-async-null","tool_name":"request_user_input_async","tool_use_id":"call-async-null","tool_input":{"questions":[{"title":"Describe the environment","options":null}]},"cwd":"/tmp/demo-project"}' \
+            | CC_NOTIFY_RENDER_ONLY=1 bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+        if [ "$(printf '%s' "$async_null_out" | jq -r '.event_kind')" != "user_input" ] ||
+           [ "$(printf '%s' "$async_null_out" | jq -r '.option_labels | length')" != "0" ]; then
+            echo -e "${RED}[request_user_input_async]${NC} explicit null options must be valid and render with zero option labels: $async_null_out"
+            return 1
+        fi
+
+        # Payloads the current async handler rejects (validated after PreToolUse)
+        # must stay quiet AND keep existing pending state: no notify, no clear.
+        async_invalid_case() {
+            local name="$1" fixture="$2"
+            local invalid_state="${tmp_root}/state-async-${name}"
+            local invalid_out count
+            mkdir -p "$invalid_state"
+            touch "${invalid_state}/pending_${name}_user_input_x_1_1"
+            invalid_out=$(printf '%s' "$fixture" \
+                | CC_NOTIFY_CONFIG="$async_config" CC_NOTIFY_STATE_DIR="$invalid_state" \
+                    bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh")
+            count=$(compgen -G "${invalid_state}/pending_*" | wc -l || true)
+            if [ -n "$invalid_out" ] ||
+               [ ! -f "${invalid_state}/pending_${name}_user_input_x_1_1" ] ||
+               [ "$count" != "1" ]; then
+                echo -e "${RED}[request_user_input_async]${NC} the invalid async payload ($name) must stay quiet, keep pending state, and create nothing"
+                return 1
+            fi
+        }
+
+        async_config="${tmp_root}/async-notify.json"
+        printf '%s\n' '{"channels":{},"rate_limit":10}' > "$async_config"
+        async_invalid_case 'objopts' '{"hook_event_name":"PreToolUse","session_id":"objopts","tool_name":"request_user_input_async","tool_use_id":"call-async-1","tool_input":{"questions":[{"title":"Which environment?","options":[{"label":"Staging"},{"label":"Production"}]}]}}'
+        async_invalid_case 'emptyopts' '{"hook_event_name":"PreToolUse","session_id":"emptyopts","tool_name":"request_user_input_async","tool_use_id":"call-async-2","tool_input":{"questions":[{"title":"Which environment?","options":[]}]}}'
+        async_invalid_case 'blanktitle' '{"hook_event_name":"PreToolUse","session_id":"blanktitle","tool_name":"request_user_input_async","tool_use_id":"call-async-3","tool_input":{"questions":[{"title":"   ","options":["A"]}]}}'
+        async_invalid_case 'nonstring' '{"hook_event_name":"PreToolUse","session_id":"nonstring","tool_name":"request_user_input_async","tool_use_id":"call-async-4","tool_input":{"questions":[{"title":"Which environment?","options":["A",123]}]}}'
+        async_invalid_case 'unknownfield' '{"hook_event_name":"PreToolUse","session_id":"unknownfield","tool_name":"request_user_input_async","tool_use_id":"call-async-5","tool_input":{"questions":[{"title":"Question?","extra":true}]}}'
+        async_invalid_case 'laterinvalid' '{"hook_event_name":"PreToolUse","session_id":"laterinvalid","tool_name":"request_user_input_async","tool_use_id":"call-async-6","tool_input":{"questions":[{"title":"First?","options":["A"]},{"title":"  "}]}}'
+        async_invalid_case 'rootextra' '{"hook_event_name":"PreToolUse","session_id":"rootextra","tool_name":"request_user_input_async","tool_use_id":"call-async-7","tool_input":{"questions":[{"title":"Question?"}],"extra":true}}'
+        async_invalid_case 'toolinputarr' '{"hook_event_name":"PreToolUse","session_id":"toolinputarr","tool_name":"request_user_input_async","tool_use_id":"call-async-8","tool_input":["questions"]}'
+
+        # Async lifecycle: the async tool's immediate completion is NOT wired to the
+        # PostToolUse user_input clear hook -- the later UserPromptSubmit clears instead.
+        pre_matcher=$(jq -r '.hooks.PreToolUse[0].matcher' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        post_matcher=$(jq -r '.hooks.PostToolUse[0].matcher' "${SCRIPT_DIR}/hooks/codex-hooks.json")
+        if [ "$pre_matcher" != "*" ] ||
+           [ "$post_matcher" != '^request_user_input$' ] ||
+           printf '%s' 'request_user_input_async' | grep -Eq "$post_matcher"; then
+            echo -e "${RED}[request_user_input_async]${NC} the PostToolUse clear matcher must stay exactly ^request_user_input\$ so async completion keeps the pending marker"
             return 1
         fi
 

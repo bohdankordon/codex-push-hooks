@@ -7,7 +7,7 @@
 #   notification [kind]  - notify path (PermissionRequest; pre-tool-use user_input)
 #   stop                 - notify path (Stop)
 #   clear [kind]         - clear pending for the current session (UserPromptSubmit; PostToolUse)
-#   pre-tool-use         - dispatcher (request_user_input/ask/AskUserQuestion or clear)
+#   pre-tool-use         - dispatcher (request_user_input/request_user_input_async/ask/AskUserQuestion or clear)
 param([string]$Action = '', [string]$KindArg = '')
 
 $ErrorActionPreference = 'Stop'
@@ -98,8 +98,22 @@ try {
             $tn = $pe['ToolName']
             # POSIX parity (pre_tool_use.sh): a question tool with no questions
             # neither notifies nor clears; every other tool clears pending state.
-            if ($tn -eq 'request_user_input' -or $tn -eq 'ask' -or $tn -eq 'AskUserQuestion') {
-                if ([int]$pe['QuestionCount'] -gt 0) {
+            # request_user_input_async is the current async question tool. Its
+            # completion is not the user's answer, so the PostToolUse manifest
+            # matcher deliberately does not cover it; the later UserPromptSubmit
+            # clears the pending notification instead.
+            $questionTools = @('request_user_input', 'request_user_input_async', 'ask', 'AskUserQuestion')
+            if ($questionTools -contains $tn) {
+                $notify = ([int]$pe['QuestionCount'] -gt 0)
+                if ($tn -eq 'request_user_input_async' -and -not [bool]$pe['AsyncQuestionPayloadValid']) {
+                    # Codex validates the async tool's arguments only after PreToolUse
+                    # runs, so a payload the handler will reject must stay quiet: no
+                    # notification (the user never sees the question) and no clear
+                    # (the tool is still recognized, so it must not fall through to
+                    # the ordinary-tool clear behavior).
+                    $notify = $false
+                }
+                if ($notify) {
                     Invoke-NotifyFlow -RawInput $raw -EventType 'notification' -EventKind 'user_input'
                 }
             } else {
