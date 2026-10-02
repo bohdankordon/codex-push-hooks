@@ -589,7 +589,7 @@ test_session_state() {
         # user answers (UserPromptSubmit). Unrelated tool activity, the turn's Stop,
         # and a completed delivery must not end that waiting state.
         local async_state async_cap async_config async_event async_other async_second
-        local async_tool async_stop async_ups
+        local async_tool async_stop async_ups sync_name
         async_state="${tmp_root}/async-state"
         async_cap="${tmp_root}/async-cap"
         async_config="${tmp_root}/async-notify.json"
@@ -613,6 +613,18 @@ test_session_state() {
         printf '%s' "$async_tool" | CC_NOTIFY_CONFIG="$async_config" CC_NOTIFY_CAPTURE_DIR="$async_cap" CC_NOTIFY_STATE_DIR="$async_state" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh"
         compgen -G "${async_state}/pending_session-async_user_input_"* >/dev/null || { echo -e "${RED}[Async waiting]${NC} ordinary tool activity must not delete the async delivery pending"; return 1; }
         compgen -G "${async_state}/awaiting_async_session-async_"* >/dev/null || { echo -e "${RED}[Async waiting]${NC} ordinary tool activity must not end async waiting"; return 1; }
+
+        # A recognized sync/compat question tool with no questions is a quiet no-op:
+        # it must not end the async wait or clear the reply pending.
+        for sync_name in request_user_input ask AskUserQuestion; do
+            printf '%s' "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-async\",\"tool_name\":\"${sync_name}\",\"tool_input\":{\"questions\":[]}}" \
+                | CC_NOTIFY_CONFIG="$async_config" CC_NOTIFY_CAPTURE_DIR="$async_cap" CC_NOTIFY_STATE_DIR="$async_state" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh"
+        done
+        printf '%s' '{"hook_event_name":"PreToolUse","session_id":"session-async","tool_name":"request_user_input","tool_input":{}}' \
+            | CC_NOTIFY_CONFIG="$async_config" CC_NOTIFY_CAPTURE_DIR="$async_cap" CC_NOTIFY_STATE_DIR="$async_state" bash "${SCRIPT_DIR}/scripts/pre_tool_use.sh"
+        compgen -G "${async_state}/awaiting_async_session-async_"* >/dev/null || { echo -e "${RED}[Async waiting]${NC} an empty sync question must not end async waiting"; return 1; }
+        compgen -G "${async_state}/pending_session-async_user_input_call-async_"* >/dev/null || { echo -e "${RED}[Async waiting]${NC} an empty sync question must not clear the reply pending"; return 1; }
+        [ "$(compgen -G "${async_state}/pending_session-async_user_input_"* | wc -l)" -eq 1 ] || { echo -e "${RED}[Async waiting]${NC} an empty sync question must not create a new pending"; return 1; }
 
         printf '%s' "$async_other" | CC_NOTIFY_CONFIG="$async_config" CC_NOTIFY_CAPTURE_DIR="$async_cap" CC_NOTIFY_STATE_DIR="$async_state" bash "${SCRIPT_DIR}/scripts/notify.sh" notification
         compgen -G "${async_state}/pending_session-async_user_input_"* >/dev/null || { echo -e "${RED}[Async waiting]${NC} another notification must not delete the async delivery pending"; return 1; }

@@ -130,7 +130,7 @@ function New-AsyncCaseEnv {
     param([string]$Dir)
     $sd = Join-Path $Dir 'state'; New-Item -ItemType Directory -Force -Path $sd | Out-Null
     $cap = Join-Path $Dir 'cap'; New-Item -ItemType Directory -Force -Path $cap | Out-Null
-    $cfg = Write-TestConfig -Dir $Dir -Body '{"channels":{"telegram":{"enabled":true,"delay":60,"bot_token":"F","chat_id":"0"}},"rate_limit":0}'
+    $cfg = Write-TestConfig -Dir $Dir -Body '{"channels":{"telegram":{"enabled":true,"delay":10,"bot_token":"F","chat_id":"0"}},"rate_limit":0}'
     return @{ StateDir = $sd; CaptureDir = $cap; Config = $cfg; Extra = @{ 'CC_NOTIFY_STATE_DIR' = $sd; 'CC_NOTIFY_CONFIG' = $cfg; 'CC_NOTIFY_CAPTURE_DIR' = $cap } }
 }
 
@@ -1030,6 +1030,30 @@ Invoke-Case '60-sync-question-supersedes-async-wait' {
     Assert-True (-not (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's60')) 'no stale awaiting marker after the sync transition'
     [void](Get-HookExit -Json '{"hook_event_name":"Stop","session_id":"s60"}' -Action 'stop' -ExtraEnv $env.Extra)
     Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'last_s60_stop')) 'Stop is not suppressed after the sync transition'
+}
+Invoke-Case '61-sync-question-without-questions-keeps-async-wait' {
+    # A recognized sync/compat question tool with no questions is a quiet no-op
+    # (Windows parity: neither notify nor clear). It must not end the async wait
+    # or clear the reply pending, otherwise the real Stage 3B Stop bug reopens.
+    $d = New-CaseDir; $env = New-AsyncCaseEnv -Dir $d
+    Add-AsyncAwaitingFixture -StateDir $env.StateDir -SessionKey 's61' -ToolUseKey 'call-async'
+    foreach ($tn in @('request_user_input','ask','AskUserQuestion')) {
+        $payload = '{"hook_event_name":"PreToolUse","tool_name":"' + $tn + '","session_id":"s61","tool_input":{"questions":[]}}'
+        $code = Get-HookExit -Json $payload -Action 'pre-tool-use' -ExtraEnv $env.Extra
+        Assert-True ($code -eq 0) ($tn + ' with no questions exits 0')
+        Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's61') ($tn + ' keeps the async waiting state')
+        Assert-True (Test-Path -LiteralPath (Join-Path $env.StateDir 'pending_s61_user_input_call-async_1_1')) ($tn + ' keeps the reply pending')
+        Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s61_user_input_*').Count -eq 1) ($tn + ' creates no new user_input pending')
+        Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'job_*.json' -ErrorAction SilentlyContinue).Count -eq 0) ($tn + ' creates no job')
+    }
+    # A missing questions key follows the same quiet path.
+    $code = Get-HookExit -Json '{"hook_event_name":"PreToolUse","tool_name":"request_user_input","session_id":"s61","tool_input":{}}' -Action 'pre-tool-use' -ExtraEnv $env.Extra
+    Assert-True ($code -eq 0) 'missing questions exits 0'
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's61') 'missing questions keeps the async waiting state'
+    [void](Get-HookExit -Json '{"hook_event_name":"Stop","session_id":"s61"}' -Action 'stop' -ExtraEnv $env.Extra)
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $env.StateDir 'last_s61_stop'))) 'Stop stays suppressed after the empty sync questions'
+    Assert-True (@(Get-ChildItem -LiteralPath $env.StateDir -Filter 'pending_s61_stop_*' -ErrorAction SilentlyContinue).Count -eq 0) 'no stop pending after the empty sync questions'
+    Assert-True (Test-CphAsyncAwaiting -StateDir $env.StateDir -SessionKey 's61') 'async waiting still exists after Stop'
 }
 Write-Output ''
 Write-Output ('PSVersion=' + [string]$PSVersionTable.PSVersion)

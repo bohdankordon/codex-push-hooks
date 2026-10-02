@@ -55,12 +55,6 @@ case "$TOOL_NAME" in
             || true
         ;;
     request_user_input|ask|AskUserQuestion)
-        # A new synchronous question supersedes an outstanding async wait: without
-        # this a stale waiting marker could keep suppressing Stop after the
-        # synchronous question has been answered and cleared.
-        printf '%s' "$EVENT_DATA" \
-            | bash "${SCRIPT_DIR}/clear_pending.sh" --async-end \
-            || true
         QUESTION_COUNT=$(printf '%s' "$EVENT_DATA" | jq -r '
             if (.tool_input.questions? | type) == "array"
             then (.tool_input.questions | length)
@@ -69,6 +63,12 @@ case "$TOOL_NAME" in
         ' 2>/dev/null || echo "0")
 
         [ "$QUESTION_COUNT" -gt 0 ] 2>/dev/null || exit 0
+        # A new synchronous question supersedes an outstanding async wait, but only
+        # when it actually notifies: a recognized question tool with no questions is
+        # a quiet no-op that must keep the async waiting state and its reply pending.
+        printf '%s' "$EVENT_DATA" \
+            | bash "${SCRIPT_DIR}/clear_pending.sh" --async-end \
+            || true
         printf '%s' "$EVENT_DATA" \
             | bash "${SCRIPT_DIR}/notify.sh" notification user_input \
             || true

@@ -151,17 +151,20 @@ try {
                     # the ordinary-tool clear behavior).
                     $notify = $false
                 }
-                if ($tn -ne 'request_user_input_async') {
-                    # A new synchronous question supersedes an outstanding async wait;
-                    # without this a stale marker could keep suppressing Stop after
-                    # the synchronous question has been answered and cleared.
-                    $syncStateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
-                    if (-not [string]::IsNullOrEmpty($syncStateDir)) {
-                        $syncSessionKey = ConvertTo-CphSafeKey -Value (Get-CphSessionScope -Event $pe)
-                        Clear-CphAsyncAwaiting -StateDir $syncStateDir -SessionKey $syncSessionKey
-                    }
-                }
                 if ($notify) {
+                    if ($tn -ne 'request_user_input_async') {
+                        # A new synchronous question supersedes an outstanding async wait;
+                        # only an event that actually notifies counts, so a recognized
+                        # question tool with no questions stays a quiet no-op that keeps
+                        # the async waiting state (POSIX parity). Without this a stale
+                        # marker could keep suppressing Stop after the synchronous
+                        # question has been answered and cleared.
+                        $syncStateDir = Ensure-CphStateDirectory -StateDir (Get-CphStateDirectory)
+                        if (-not [string]::IsNullOrEmpty($syncStateDir)) {
+                            $syncSessionKey = ConvertTo-CphSafeKey -Value (Get-CphSessionScope -Event $pe)
+                            Clear-CphAsyncAwaiting -StateDir $syncStateDir -SessionKey $syncSessionKey
+                        }
+                    }
                     Invoke-NotifyFlow -RawInput $raw -EventType 'notification' -EventKind 'user_input'
                 }
             } else {
